@@ -7,7 +7,7 @@ import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, RefreshControl, ActivityIndicator, Alert, Modal, ScrollView,
 } from 'react-native';
-import { referralsAPI, getErrorMessage } from '../../api/client';
+import { referralsAPI, casesAPI, facilitiesAPI, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 
 const STATUS_COLORS = {
@@ -38,15 +38,17 @@ const VALID_TRANSITIONS = {
 
 export default function ReferralsScreen() {
   const { userRole } = useAuth();
-  const isFacilityAdmin = userRole === 'facility_admin';
+  const isFacilityAdmin  = userRole === 'facility_admin';
+  const canCreateReferral = userRole === 'health_worker' || userRole === 'specialist';
 
-  const [referrals,  setReferrals]  = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeTab,  setActiveTab]  = useState('all');
-  const [search,     setSearch]     = useState('');
-  const [selected,   setSelected]   = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
+  const [referrals,    setReferrals]    = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [activeTab,    setActiveTab]    = useState('all');
+  const [search,       setSearch]       = useState('');
+  const [selected,     setSelected]     = useState(null);
+  const [showDetail,   setShowDetail]   = useState(false);
+  const [showCreate,   setShowCreate]   = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -147,6 +149,19 @@ export default function ReferralsScreen() {
           onUpdated={() => { setShowDetail(false); load(); }}
         />
       )}
+
+      {canCreateReferral && (
+        <>
+          <TouchableOpacity style={styles.fab} onPress={() => setShowCreate(true)}>
+            <Text style={styles.fabText}>+ New Referral</Text>
+          </TouchableOpacity>
+          <CreateReferralModal
+            visible={showCreate}
+            onClose={() => setShowCreate(false)}
+            onCreated={() => { setShowCreate(false); load(); }}
+          />
+        </>
+      )}
     </View>
   );
 }
@@ -237,6 +252,152 @@ function ReferralDetailModal({ visible, referral, onClose, onUpdated }) {
   );
 }
 
+// ── Create Referral Modal ──────────────────────────────────────────────────────
+function CreateReferralModal({ visible, onClose, onCreated }) {
+  const [cases,       setCases]       = useState([]);
+  const [facilities,  setFacilities]  = useState([]);
+  const [selectedCase, setSelectedCase] = useState(null);
+  const [selectedFacility, setSelectedFacility] = useState(null);
+  const [caseSearch, setCaseSearch]   = useState('');
+  const [loading,    setLoading]      = useState(false);
+  const [apiError,   setApiError]     = useState('');
+  const [suggestion, setSuggestion]   = useState(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setSelectedCase(null); setSelectedFacility(null);
+    setCaseSearch(''); setApiError(''); setSuggestion(null);
+    Promise.all([
+      casesAPI.getCases(),
+      facilitiesAPI.getFacilities(),
+    ]).then(([cRes, fRes]) => {
+      setCases(Array.isArray(cRes.data) ? cRes.data : cRes.data?.results || []);
+      setFacilities(Array.isArray(fRes.data) ? fRes.data : fRes.data?.results || []);
+    }).catch(() => {});
+  }, [visible]);
+
+  const filteredCases = cases.filter(c => {
+    const name = c.patient?.patient_name || c.patient_name || '';
+    return name.toLowerCase().includes(caseSearch.toLowerCase());
+  });
+
+  const handleSuggest = async () => {
+    if (!selectedCase) { Alert.alert('Select a case first'); return; }
+    setSuggestLoading(true); setSuggestion(null);
+    try {
+      const { data } = await referralsAPI.suggest(selectedCase.id);
+      setSuggestion(data);
+      const rec = data?.recommended_facility;
+      if (rec) setSelectedFacility(rec);
+    } catch { Alert.alert('AI suggestion unavailable', 'Please select a facility manually.'); }
+    setSuggestLoading(false);
+  };
+
+  const handleCreate = async () => {
+    if (!selectedCase)     { Alert.alert('Required', 'Select an emergency case.'); return; }
+    if (!selectedFacility) { Alert.alert('Required', 'Select a receiving facility.'); return; }
+    setLoading(true); setApiError('');
+    try {
+      await referralsAPI.createReferral({
+        emergency_case_id:     selectedCase.id,
+        receiving_facility_id: selectedFacility.id,
+        ...(suggestion?.engine_version && { engine_version: suggestion.engine_version }),
+      });
+      onCreated();
+    } catch (err) {
+      setApiError(getErrorMessage(err));
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <ScrollView style={styles.modal} keyboardShouldPersistTaps="handled">
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Create Referral</Text>
+          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+        </View>
+
+        {apiError ? <View style={styles.errorBanner}><Text style={styles.errorText}>{apiError}</Text></View> : null}
+
+        {/* Select Case */}
+        <Text style={styles.crLabel}>Emergency Case *</Text>
+        <TextInput
+          style={styles.crSearch}
+          placeholder="Search cases by patient name…"
+          placeholderTextColor="#94a3b8"
+          value={caseSearch}
+          onChangeText={setCaseSearch}
+        />
+        <View style={styles.crList}>
+          {filteredCases.length === 0
+            ? <Text style={styles.crEmpty}>No cases found</Text>
+            : filteredCases.slice(0, 10).map(c => {
+                const name = c.patient?.patient_name || c.patient_name || 'Unknown';
+                const isSelected = selectedCase?.id === c.id;
+                return (
+                  <TouchableOpacity key={c.id} onPress={() => { setSelectedCase(c); setSuggestion(null); setSelectedFacility(null); }}
+                    style={[styles.crItem, isSelected && styles.crItemActive]}>
+                    <Text style={[styles.crItemText, isSelected && styles.crItemTextActive]}>{name}{isSelected ? ' ✓' : ''}</Text>
+                    {c.danger_signs?.length > 0 && <Text style={styles.crItemSub}>{c.danger_signs.slice(0,2).join(', ')}</Text>}
+                  </TouchableOpacity>
+                );
+              })
+          }
+        </View>
+
+        {/* AI Suggestion */}
+        {selectedCase && (
+          <TouchableOpacity style={styles.suggestBtn} onPress={handleSuggest} disabled={suggestLoading}>
+            {suggestLoading
+              ? <ActivityIndicator color="#16a34a" size="small" />
+              : <Text style={styles.suggestBtnText}>🤖 Try AI Suggestion →</Text>}
+          </TouchableOpacity>
+        )}
+        {suggestion && (
+          <View style={styles.suggestionBox}>
+            <Text style={styles.suggestionTitle}>AI Recommendation</Text>
+            <Text style={styles.suggestionFacility}>{suggestion.recommended_facility?.name}</Text>
+            <Text style={styles.suggestionSub}>Level {suggestion.recommended_facility?.level} • {suggestion.recommended_facility?.district}</Text>
+          </View>
+        )}
+
+        {/* Select Facility */}
+        <Text style={styles.crLabel}>Receiving Facility *</Text>
+        <View style={styles.crList}>
+          {facilities.map(f => {
+            const isSelected = selectedFacility?.id === f.id;
+            return (
+              <TouchableOpacity key={f.id} onPress={() => setSelectedFacility(f)}
+                style={[styles.crItem, isSelected && styles.crItemActive]}>
+                <Text style={[styles.crItemText, isSelected && styles.crItemTextActive]}>{f.name}{isSelected ? ' ✓' : ''}</Text>
+                <Text style={styles.crItemSub}>Level {f.level} • {f.district || f.region || ''}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {selectedFacility && (
+          <View style={styles.selectedBox}>
+            <Text style={styles.selectedBoxLabel}>Selected facility</Text>
+            <Text style={styles.selectedBoxName}>{selectedFacility.name}</Text>
+          </View>
+        )}
+
+        <View style={styles.crBtnRow}>
+          <TouchableOpacity style={styles.crCancelBtn} onPress={onClose}>
+            <Text style={styles.crCancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.crCreateBtn, loading && { opacity: 0.6 }]} onPress={handleCreate} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.crCreateText}>Create Referral</Text>}
+          </TouchableOpacity>
+        </View>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </Modal>
+  );
+}
+
 function DRow({ label, value }) {
   if (!value) return null;
   return (
@@ -269,10 +430,14 @@ const styles = StyleSheet.create({
   badgeText:   { fontSize: 11, fontWeight: '700' },
   meta:        { fontSize: 12, color: '#64748b', marginTop: 2 },
   empty:       { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
+  fab:         { position: 'absolute', bottom: 20, right: 20, backgroundColor: '#16a34a', borderRadius: 28, paddingHorizontal: 20, paddingVertical: 14, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8 },
+  fabText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
   modal:       { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 16 },
   modalTitle:  { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   modalClose:  { fontSize: 22, color: '#64748b', padding: 4 },
+  errorBanner: { backgroundColor: '#fee2e2', borderRadius: 8, padding: 12, marginBottom: 12 },
+  errorText:   { color: '#dc2626', fontSize: 13 },
   refId:       { fontSize: 13, color: '#94a3b8', marginBottom: 8 },
   statusBadgeLarge:     { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, marginBottom: 20 },
   statusBadgeLargeText: { fontWeight: '700', fontSize: 13 },
@@ -287,4 +452,28 @@ const styles = StyleSheet.create({
   primaryBtn:  { backgroundColor: '#16a34a' },
   dangerBtn:   { backgroundColor: '#dc2626' },
   actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  // Create referral modal
+  crLabel:     { fontSize: 13, fontWeight: '700', color: '#374151', marginTop: 16, marginBottom: 8 },
+  crSearch:    { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, fontSize: 14, color: '#0f172a', marginBottom: 8 },
+  crList:      { maxHeight: 180, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 },
+  crItem:      { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: '#fff' },
+  crItemActive:{ backgroundColor: '#f0fdf4' },
+  crItemText:  { fontSize: 13, color: '#374151', fontWeight: '500' },
+  crItemTextActive: { color: '#16a34a', fontWeight: '700' },
+  crItemSub:   { fontSize: 11, color: '#94a3b8', marginTop: 2 },
+  crEmpty:     { padding: 12, fontSize: 13, color: '#94a3b8', textAlign: 'center' },
+  suggestBtn:  { borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 10, padding: 12, alignItems: 'center', marginVertical: 8 },
+  suggestBtnText: { color: '#16a34a', fontWeight: '700', fontSize: 14 },
+  suggestionBox: { backgroundColor: '#f0fdf4', borderRadius: 10, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#bbf7d0' },
+  suggestionTitle: { fontSize: 11, fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', marginBottom: 4 },
+  suggestionFacility: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  suggestionSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  selectedBox: { backgroundColor: '#f0fdf4', borderRadius: 10, padding: 12, marginVertical: 8 },
+  selectedBoxLabel: { fontSize: 11, color: '#64748b', fontWeight: '600' },
+  selectedBoxName:  { fontSize: 14, fontWeight: '700', color: '#16a34a', marginTop: 2 },
+  crBtnRow:    { flexDirection: 'row', gap: 12, marginTop: 20 },
+  crCancelBtn: { flex: 1, borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 12, padding: 14, alignItems: 'center' },
+  crCancelText:{ color: '#16a34a', fontWeight: '700', fontSize: 15 },
+  crCreateBtn: { flex: 1, backgroundColor: '#16a34a', borderRadius: 12, padding: 14, alignItems: 'center' },
+  crCreateText:{ color: '#fff', fontWeight: '700', fontSize: 15 },
 });

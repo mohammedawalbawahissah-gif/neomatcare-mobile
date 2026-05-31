@@ -107,9 +107,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   // ── Helpers ──
-  const isAuthenticated = !!user && !!token;
-  const userRole        = user?.role || null;
-  const homeScreen      = ROLE_HOME_SCREEN[userRole] || 'Dashboard';
+  const isAuthenticated  = !!user && !!token;
+  const userRole         = user?.role || null;
+  const homeScreen       = ROLE_HOME_SCREEN[userRole] || 'Dashboard';
+  const isHealthWorker   = userRole === 'health_worker';
+  const isSpecialist     = userRole === 'specialist';
+  const isFacilityAdmin  = userRole === 'facility_admin';
+  const isDriver         = userRole === 'driver';
+  const isSuperadmin     = userRole === 'superadmin';
 
   return (
     <AuthContext.Provider
@@ -121,6 +126,11 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated,
         userRole,
         homeScreen,
+        isHealthWorker,
+        isSpecialist,
+        isFacilityAdmin,
+        isDriver,
+        isSuperadmin,
         login,
         register,
         logout,

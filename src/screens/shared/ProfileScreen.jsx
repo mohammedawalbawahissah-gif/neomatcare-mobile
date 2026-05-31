@@ -102,6 +102,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
   const [form, setForm] = useState({
     first_name: user?.first_name || '',
     last_name:  user?.last_name  || '',
+    email:      user?.email      || '',
     phone:      user?.phone      || '',
   });
   const [loading, setLoading] = useState(false);
@@ -128,6 +129,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
         {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
         <MField label="First Name" value={form.first_name} onChange={set('first_name')} placeholder="First name" />
         <MField label="Last Name"  value={form.last_name}  onChange={set('last_name')}  placeholder="Last name" />
+        <MField label="Email"      value={form.email}      onChange={set('email')}      placeholder="email@example.com" keyboard="email-address" />
         <MField label="Phone"      value={form.phone}      onChange={set('phone')}      placeholder="+233 XX XXX XXXX" keyboard="phone-pad" />
         <View style={styles.btnRow}>
           <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}>

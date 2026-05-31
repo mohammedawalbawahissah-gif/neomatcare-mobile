@@ -52,14 +52,17 @@ export default function DashboardScreen({ navigation }) {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
+  // Cases lives inside the nested CasesTab stack.
+  // navigation.navigate('CasesTab') switches to the tab; the stack then
+  // shows the Cases list screen by default.
   const cards = [
-    (userRole === 'health_worker' || userRole === 'superadmin') &&
-      { label: 'Cases', value: stats.cases, color: '#16a34a', route: 'Cases' },
+    (userRole === 'health_worker' || userRole === 'facility_admin' || userRole === 'superadmin') &&
+      { label: 'Cases', value: stats.cases, color: '#16a34a', route: 'CasesTab' },
     (userRole === 'health_worker' || userRole === 'facility_admin' || userRole === 'superadmin') &&
       { label: 'Referrals', value: stats.referrals, color: '#2563eb', route: 'Referrals' },
     (userRole === 'health_worker' || userRole === 'specialist' || userRole === 'superadmin') &&
       { label: 'Consultations', value: stats.consultations, color: '#7c3aed', route: 'Consultations' },
-    (userRole === 'driver' || userRole === 'superadmin') &&
+    (userRole === 'driver' || userRole === 'health_worker' || userRole === 'superadmin') &&
       { label: 'Transport', value: stats.transport, color: '#d97706', route: 'Transport' },
   ].filter(Boolean);
 
@@ -111,7 +114,7 @@ export default function DashboardScreen({ navigation }) {
           {userRole === 'health_worker' && (
             <TouchableOpacity
               style={styles.primaryBtn}
-              onPress={() => navigation.navigate('Cases')}
+              onPress={() => navigation.navigate('CasesTab')}
             >
               <Text style={styles.primaryBtnText}>+ New Emergency Case</Text>
             </TouchableOpacity>

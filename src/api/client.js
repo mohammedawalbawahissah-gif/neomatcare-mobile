@@ -83,9 +83,9 @@ export const casesAPI = {
 export const referralsAPI = {
   getReferrals:    (params)        => apiClient.get('/referrals/', { params }),
   getReferral:     (id)            => apiClient.get(`/referrals/${id}/`),
-  createReferral:  (data)          => apiClient.post('/referrals/', data),
+  createReferral:  (data)          => apiClient.post('/referrals/create/', data),
   // AI engine — returns { recommended_facility, alternatives, engine_version }
-  suggest:         (caseId)        => apiClient.get(`/referrals/suggest/?case_id=${caseId}`),
+  suggest:         (caseId)        => apiClient.post('/referrals/suggest/', { emergency_case_id: caseId }),
   updateReferral:  (id, data)      => apiClient.patch(`/referrals/${id}/`, data),
   updateStatus:    (id, status, note) =>
     apiClient.patch(`/referrals/${id}/status/`, { status, ...(note && { note }) }),

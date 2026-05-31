@@ -1,7 +1,11 @@
 /**
  * navigation/RootNavigator.jsx
- * Revamp architecture kept — role-based tab stacks.
- * Original tab bar style restored (#16a34a active, #f8fafc bg, height 64).
+ * Fixed:
+ *  - HealthWorker now has Consultations + Transport tabs
+ *  - SuperAdmin has Cases + Referrals + Consultations + Transport + Users + Facilities
+ *  - FacilityAdmin has Cases + Consultations + Transport
+ *  - All tab screen names match navigation.navigate() call sites exactly
+ *  - CasesStack exposes both "Cases" and "CaseDetail" so dashboard navigation works
  */
 import React from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
@@ -51,8 +55,9 @@ const AuthStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Health Worker ────────────────────────────────────────────────────────────
-// Cases + CaseDetail live in a nested stack so the tab bar hides on detail
+// ─── Cases Stack ─────────────────────────────────────────────────────────────
+// Wraps Cases list + CaseDetail so tab bar stays visible on list,
+// hides on detail. Screen name "Cases" must match navigation.navigate('Cases').
 const CasesStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Cases"      component={CasesScreen} />
@@ -60,27 +65,61 @@ const CasesStack = () => (
   </Stack.Navigator>
 );
 
+// ─── Shared tab bar options ───────────────────────────────────────────────────
+const TAB_OPTIONS = {
+  headerShown: false,
+  tabBarActiveTintColor:   '#16a34a',
+  tabBarInactiveTintColor: '#94a3b8',
+  tabBarStyle: {
+    backgroundColor: '#fff',
+    borderTopColor:  '#f1f5f9',
+    borderTopWidth:  1,
+    paddingBottom:   8,
+    paddingTop:      6,
+    height:          64,
+  },
+  tabBarLabelStyle: {
+    fontSize:   11,
+    fontWeight: '600',
+    marginTop:  2,
+  },
+};
+
+const icon = (name) => ({ color }) => <Ionicons name={name} size={22} color={color} />;
+
+// ─── Health Worker ─────────────────────────────────────────────────────────
+// Has: Cases, Referrals, Consultations, Transport, Home, Profile
 const HealthWorkerTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
     <Tab.Screen
       name="CasesTab"
       component={CasesStack}
-      options={{ title: 'Cases', tabBarIcon: ({ color }) => <Ionicons name="medical-outline" size={22} color={color} /> }}
+      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
     />
     <Tab.Screen
       name="Referrals"
       component={ReferralsScreen}
-      options={{ title: 'Referrals', tabBarIcon: ({ color }) => <Ionicons name="swap-horizontal-outline" size={22} color={color} /> }}
+      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
+    />
+    <Tab.Screen
+      name="Consultations"
+      component={ConsultationsScreen}
+      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
+    />
+    <Tab.Screen
+      name="Transport"
+      component={TransportScreen}
+      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
       component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
     />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
     />
   </Tab.Navigator>
 );
@@ -91,48 +130,64 @@ const SpecialistTabs = () => (
     <Tab.Screen
       name="Consultations"
       component={ConsultationsScreen}
-      options={{ title: 'Consults', tabBarIcon: ({ color }) => <Ionicons name="chatbubbles-outline" size={22} color={color} /> }}
+      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
     />
     <Tab.Screen
       name="Referrals"
       component={ReferralsScreen}
-      options={{ title: 'Referrals', tabBarIcon: ({ color }) => <Ionicons name="swap-horizontal-outline" size={22} color={color} /> }}
+      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
       component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
     />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
     />
   </Tab.Navigator>
 );
 
 // ─── Facility Admin ───────────────────────────────────────────────────────────
+// Has: Cases, Referrals, Consultations, Transport, Facility, Home, Profile
 const FacilityAdminTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
     <Tab.Screen
+      name="CasesTab"
+      component={CasesStack}
+      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
+    />
+    <Tab.Screen
       name="Referrals"
       component={ReferralsScreen}
-      options={{ title: 'Referrals', tabBarIcon: ({ color }) => <Ionicons name="swap-horizontal-outline" size={22} color={color} /> }}
+      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
+    />
+    <Tab.Screen
+      name="Consultations"
+      component={ConsultationsScreen}
+      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
+    />
+    <Tab.Screen
+      name="Transport"
+      component={TransportScreen}
+      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
     />
     <Tab.Screen
       name="Facility"
       component={FacilityScreen}
-      options={{ title: 'Facility', tabBarIcon: ({ color }) => <Ionicons name="business-outline" size={22} color={color} /> }}
+      options={{ title: 'Facility', tabBarIcon: icon('business-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
       component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
     />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
     />
   </Tab.Navigator>
 );
@@ -143,43 +198,71 @@ const DriverTabs = () => (
     <Tab.Screen
       name="Transport"
       component={TransportScreen}
-      options={{ title: 'Transport', tabBarIcon: ({ color }) => <Ionicons name="car-outline" size={22} color={color} /> }}
+      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
       component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
     />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
     />
   </Tab.Navigator>
 );
 
 // ─── Superadmin ───────────────────────────────────────────────────────────────
+// Has access to everything
+const SuperadminStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Cases"      component={CasesScreen} />
+    <Stack.Screen name="CaseDetail" component={CaseDetailScreen} />
+  </Stack.Navigator>
+);
+
 const SuperadminTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
     <Tab.Screen
+      name="CasesTab"
+      component={SuperadminStack}
+      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
+    />
+    <Tab.Screen
+      name="Referrals"
+      component={ReferralsScreen}
+      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
+    />
+    <Tab.Screen
+      name="Consultations"
+      component={ConsultationsScreen}
+      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
+    />
+    <Tab.Screen
+      name="Transport"
+      component={TransportScreen}
+      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
+    />
+    <Tab.Screen
       name="Facilities"
       component={FacilitiesScreen}
-      options={{ title: 'Facilities', tabBarIcon: ({ color }) => <Ionicons name="business-outline" size={22} color={color} /> }}
+      options={{ title: 'Facilities', tabBarIcon: icon('business-outline') }}
     />
     <Tab.Screen
       name="Users"
       component={UsersScreen}
-      options={{ title: 'Users', tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={22} color={color} /> }}
+      options={{ title: 'Users', tabBarIcon: icon('people-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
       component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
     />
     <Tab.Screen
       name="Profile"
       component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
     />
   </Tab.Navigator>
 );
@@ -206,26 +289,6 @@ const RootNavigator = () => {
     case 'superadmin':     return <SuperadminTabs />;
     default:               return <HealthWorkerTabs />;
   }
-};
-
-// ─── Shared tab bar style — matches original ──────────────────────────────────
-const TAB_OPTIONS = {
-  headerShown: false,
-  tabBarActiveTintColor:   '#16a34a',
-  tabBarInactiveTintColor: '#94a3b8',
-  tabBarStyle: {
-    backgroundColor: '#fff',
-    borderTopColor:  '#f1f5f9',
-    borderTopWidth:  1,
-    paddingBottom:   8,
-    paddingTop:      6,
-    height:          64,
-  },
-  tabBarLabelStyle: {
-    fontSize:   11,
-    fontWeight: '600',
-    marginTop:  2,
-  },
 };
 
 const styles = StyleSheet.create({

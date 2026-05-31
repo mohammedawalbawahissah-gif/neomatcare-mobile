@@ -7,7 +7,7 @@ import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, RefreshControl, ActivityIndicator, Alert, Modal, ScrollView,
 } from 'react-native';
-import { casesAPI, getErrorMessage } from '../../api/client';
+import { casesAPI, facilitiesAPI, getErrorMessage } from '../../api/client';
 
 const DANGER_COLORS = {
   PPH: '#dc2626', APH: '#dc2626', RUPTURED_UTERUS: '#dc2626',
@@ -159,18 +159,30 @@ export default function CasesScreen({ navigation }) {
 }
 
 // ── Create Case Modal ──────────────────────────────────────────────────────────
+// Fields match EmergencyCaseCreateSerializer exactly (mirrors web frontend)
+const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown'];
+
 function CreateCaseModal({ visible, onClose, onCreated }) {
-  const [form, setForm] = useState({
-    patient_name: '', age: '', phone: '', blood_group: '',
-    anc_visits: '', gestational_age_weeks: '', gravida: '', parity: '',
-    membranes_status: 'unknown',
+  const INIT = {
+    patient_name: '', hospital_id: '', phone: '', age: '',
+    patient_town: '', blood_group: 'unknown', anc_visits: '',
+    referring_facility: '',
+    gestational_age_weeks: '', gravida: '', parity: '',
+    obstetric_history: '',
     presenting_complaint: '',
     danger_signs: [],
-  });
-  const [loading,  setLoading]  = useState(false);
-  const [apiError, setApiError] = useState('');
+    membranes_status: 'unknown',
+    fetal_heart_rate: '',
+    vital_signs: { systolic_bp: '', diastolic_bp: '', heart_rate: '', respiratory_rate: '', temperature: '', spo2: '' },
+  };
 
-  const set = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
+  const [form,       setForm]       = useState(INIT);
+  const [facilities, setFacilities] = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [apiError,   setApiError]   = useState('');
+
+  const set     = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
+  const setVital = (f) => (v) => setForm(p => ({ ...p, vital_signs: { ...p.vital_signs, [f]: v } }));
 
   const toggleSign = (code) => {
     setForm(p => ({
@@ -181,29 +193,47 @@ function CreateCaseModal({ visible, onClose, onCreated }) {
     }));
   };
 
-  const handleCreate = async () => {
-    if (!form.patient_name.trim() || !form.presenting_complaint.trim()) {
-      Alert.alert('Required', 'Patient name and presenting complaint are required.');
-      return;
-    }
-    setLoading(true);
+  // Load facilities when modal opens
+  React.useEffect(() => {
+    if (!visible) return;
+    setForm(INIT);
     setApiError('');
+    facilitiesAPI.getFacilities()
+      .then(r => setFacilities(Array.isArray(r.data) ? r.data : r.data?.results || []))
+      .catch(() => {});
+  }, [visible]);
+
+  const handleCreate = async () => {
+    if (!form.patient_name.trim()) { Alert.alert('Required', 'Patient name is required.'); return; }
+    if (!form.presenting_complaint.trim()) { Alert.alert('Required', 'Presenting complaint is required.'); return; }
+    if (!form.referring_facility) { Alert.alert('Required', 'Please select a referring facility.'); return; }
+
+    setLoading(true); setApiError('');
     try {
+      // Strip empty vital sign fields
+      const vital_signs = {};
+      Object.entries(form.vital_signs).forEach(([k, v]) => { if (v !== '') vital_signs[k] = Number(v); });
+
       const payload = {
-        patient: {
-          patient_name: form.patient_name.trim(),
-          age:          form.age ? Number(form.age) : undefined,
-          patient_phone_number: form.phone || undefined,
-          blood_group:  form.blood_group || undefined,
-          anc_visits:   form.anc_visits ? Number(form.anc_visits) : undefined,
-        },
+        patient_name:          form.patient_name.trim(),
+        patient_age:           form.age ? Number(form.age) : undefined,
+        patient_phone_number:  form.phone.trim() || undefined,
+        hospital_id:           form.hospital_id.trim() || undefined,
+        patient_town:          form.patient_town.trim() || undefined,
+        patient_blood_group:   form.blood_group,
+        patient_anc_visits:    form.anc_visits ? Number(form.anc_visits) : 0,
         presenting_complaint:  form.presenting_complaint.trim(),
         danger_signs:          form.danger_signs,
-        gestational_age_weeks: form.gestational_age_weeks ? Number(form.gestational_age_weeks) : undefined,
-        gravida:               form.gravida ? Number(form.gravida) : undefined,
-        parity:                form.parity  ? Number(form.parity)  : undefined,
+        gestational_age_weeks: form.gestational_age_weeks ? Number(form.gestational_age_weeks) : null,
+        gravida:               form.gravida  ? Number(form.gravida)  : null,
+        parity:                form.parity   ? Number(form.parity)   : null,
+        obstetric_history:     form.obstetric_history.trim() || undefined,
         membranes_status:      form.membranes_status,
+        fetal_heart_rate:      form.fetal_heart_rate ? Number(form.fetal_heart_rate) : null,
+        referring_facility:    form.referring_facility,
+        ...(Object.keys(vital_signs).length > 0 && { vital_signs }),
       };
+
       const { data } = await casesAPI.createCase(payload);
       onCreated(data);
     } catch (err) {
@@ -223,38 +253,77 @@ function CreateCaseModal({ visible, onClose, onCreated }) {
           </TouchableOpacity>
         </View>
 
-        {apiError ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{apiError}</Text>
-          </View>
-        ) : null}
+        {apiError ? <View style={styles.errorBanner}><Text style={styles.errorText}>{apiError}</Text></View> : null}
 
-        <Text style={styles.sectionLabel}>Patient Details</Text>
-        <MField label="Patient Name *" value={form.patient_name} onChange={set('patient_name')} placeholder="Full name" />
+        {/* Patient Identity */}
+        <Text style={styles.sectionLabel}>Patient Identity</Text>
         <View style={styles.halfRow}>
-          <View style={{ flex: 1 }}>
-            <MField label="Age" value={form.age} onChange={set('age')} placeholder="e.g. 28" keyboard="numeric" />
-          </View>
+          <View style={{ flex: 1 }}><MField label="Patient Name *" value={form.patient_name} onChange={set('patient_name')} placeholder="Full name" /></View>
           <View style={{ width: 12 }} />
-          <View style={{ flex: 1 }}>
-            <MField label="Blood Group" value={form.blood_group} onChange={set('blood_group')} placeholder="e.g. O+" />
-          </View>
+          <View style={{ flex: 1 }}><MField label="Hospital ID" value={form.hospital_id} onChange={set('hospital_id')} placeholder="e.g. KBTH-001" /></View>
         </View>
-        <MField label="Phone" value={form.phone} onChange={set('phone')} placeholder="+233 XX XXX XXXX" keyboard="phone-pad" />
-        <MField label="ANC Visits" value={form.anc_visits} onChange={set('anc_visits')} placeholder="e.g. 3" keyboard="numeric" />
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Phone" value={form.phone} onChange={set('phone')} placeholder="+233 XX XXX XXXX" keyboard="phone-pad" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}><MField label="Age *" value={form.age} onChange={set('age')} placeholder="e.g. 28" keyboard="numeric" /></View>
+        </View>
 
+        {/* Patient Details */}
+        <Text style={styles.sectionLabel}>Patient Details</Text>
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Town/District" value={form.patient_town} onChange={set('patient_town')} placeholder="e.g. Kumasi" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}><MField label="ANC Visits" value={form.anc_visits} onChange={set('anc_visits')} placeholder="e.g. 3" keyboard="numeric" /></View>
+        </View>
+
+        <Text style={styles.mlabel}>Blood Group</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 8, paddingRight: 8 }}>
+            {BLOOD_GROUPS.map(g => (
+              <TouchableOpacity
+                key={g}
+                onPress={() => set('blood_group')(g)}
+                style={[styles.chipSmall, form.blood_group === g && styles.chipSmallActive]}
+              >
+                <Text style={[styles.chipSmallText, form.blood_group === g && styles.chipSmallTextActive]}>{g}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+
+        {/* Referring Facility */}
+        <Text style={styles.sectionLabel}>Facility</Text>
+        <Text style={styles.mlabel}>Referring Facility *</Text>
+        <ScrollView style={{ maxHeight: 120, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10 }}>
+          {facilities.length === 0
+            ? <Text style={{ padding: 12, color: '#94a3b8', fontSize: 13 }}>Loading facilities…</Text>
+            : facilities.map(f => (
+                <TouchableOpacity
+                  key={f.id}
+                  onPress={() => set('referring_facility')(f.id)}
+                  style={[{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+                    form.referring_facility === f.id && { backgroundColor: '#f0fdf4' }]}
+                >
+                  <Text style={[{ fontSize: 13, color: '#374151' },
+                    form.referring_facility === f.id && { color: '#16a34a', fontWeight: '600' }]}>
+                    {f.name}{form.referring_facility === f.id ? ' ✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))
+          }
+        </ScrollView>
+
+        {/* Obstetric History */}
         <Text style={styles.sectionLabel}>Obstetric History</Text>
         <View style={styles.halfRow}>
-          <View style={{ flex: 1 }}>
-            <MField label="Gestational Age (wks)" value={form.gestational_age_weeks} onChange={set('gestational_age_weeks')} placeholder="e.g. 36" keyboard="numeric" />
-          </View>
+          <View style={{ flex: 1 }}><MField label="Gestational Age (wks)" value={form.gestational_age_weeks} onChange={set('gestational_age_weeks')} placeholder="e.g. 36" keyboard="numeric" /></View>
           <View style={{ width: 12 }} />
-          <View style={{ flex: 1 }}>
-            <MField label="Gravida" value={form.gravida} onChange={set('gravida')} placeholder="e.g. 2" keyboard="numeric" />
-          </View>
+          <View style={{ flex: 1 }}><MField label="Gravida" value={form.gravida} onChange={set('gravida')} placeholder="e.g. 2" keyboard="numeric" /></View>
         </View>
         <MField label="Parity" value={form.parity} onChange={set('parity')} placeholder="e.g. 1" keyboard="numeric" />
+        <MField label="Obstetric History" value={form.obstetric_history} onChange={set('obstetric_history')} placeholder="Prior complications or surgeries…" multiline />
 
+        {/* Clinical Presentation */}
         <Text style={styles.sectionLabel}>Clinical Presentation</Text>
         <MField label="Presenting Complaint *" value={form.presenting_complaint} onChange={set('presenting_complaint')} placeholder="Describe the presenting complaint" multiline />
 
@@ -273,6 +342,39 @@ function CreateCaseModal({ visible, onClose, onCreated }) {
               </TouchableOpacity>
             );
           })}
+        </View>
+
+        {/* Vital Signs */}
+        <Text style={styles.sectionLabel}>Vital Signs <Text style={{ textTransform: 'none', fontWeight: '400', fontSize: 11 }}>(record what's available)</Text></Text>
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Systolic BP (mmHg)" value={form.vital_signs.systolic_bp} onChange={setVital('systolic_bp')} placeholder="—" keyboard="numeric" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}><MField label="Diastolic BP (mmHg)" value={form.vital_signs.diastolic_bp} onChange={setVital('diastolic_bp')} placeholder="—" keyboard="numeric" /></View>
+        </View>
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Heart Rate (bpm)" value={form.vital_signs.heart_rate} onChange={setVital('heart_rate')} placeholder="—" keyboard="numeric" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}><MField label="Resp. Rate (/min)" value={form.vital_signs.respiratory_rate} onChange={setVital('respiratory_rate')} placeholder="—" keyboard="numeric" /></View>
+        </View>
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Temperature (°C)" value={form.vital_signs.temperature} onChange={setVital('temperature')} placeholder="—" keyboard="numeric" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}><MField label="SpO₂ (%)" value={form.vital_signs.spo2} onChange={setVital('spo2')} placeholder="—" keyboard="numeric" /></View>
+        </View>
+        <View style={styles.halfRow}>
+          <View style={{ flex: 1 }}><MField label="Fetal Heart Rate (bpm)" value={form.fetal_heart_rate} onChange={set('fetal_heart_rate')} placeholder="—" keyboard="numeric" /></View>
+          <View style={{ width: 12 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.mlabel}>Membranes Status</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {['unknown', 'intact', 'ruptured'].map(s => (
+                <TouchableOpacity key={s} onPress={() => set('membranes_status')(s)}
+                  style={[styles.chipSmall, form.membranes_status === s && styles.chipSmallActive, { flex: 1, justifyContent: 'center' }]}>
+                  <Text style={[styles.chipSmallText, form.membranes_status === s && styles.chipSmallTextActive, { textAlign: 'center', textTransform: 'capitalize' }]}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -343,6 +445,10 @@ const styles = StyleSheet.create({
   dangerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   dangerChip: { borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fff' },
   dangerChipText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  chipSmall: { borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fff' },
+  chipSmallActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
+  chipSmallText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  chipSmallTextActive: { color: '#16a34a', fontWeight: '700' },
   saveBtn:    { backgroundColor: '#16a34a', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   saveBtnText:{ color: '#fff', fontWeight: '700', fontSize: 15 },
 });
