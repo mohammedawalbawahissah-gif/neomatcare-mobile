@@ -1,147 +1,123 @@
+/**
+ * screens/referrals/ReferralsScreen.jsx
+ * Original NeoMatCare referrals UI — restored with new search/tab/action logic.
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
-  RefreshControl, StyleSheet, TextInput,
+  View, Text, FlatList, TouchableOpacity, TextInput,
+  StyleSheet, RefreshControl, ActivityIndicator, Alert, Modal, ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-
 import { referralsAPI, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  Card, StatusBadge, Button, Spinner, EmptyState,
-  ErrorBanner, Modal, Input, Divider,
-} from '../../components/ui';
-import Colors from '../../constants/colors';
-import { Typography, Spacing, Radius } from '../../constants/theme';
 
-const STATUS_TABS = ['all', 'pending', 'accepted', 'completed', 'rejected'];
+const STATUS_COLORS = {
+  DRAFT:      { bg: '#f1f5f9', text: '#64748b' },
+  PENDING:    { bg: '#fef3c7', text: '#d97706' },
+  ACCEPTED:   { bg: '#dcfce7', text: '#16a34a' },
+  IN_TRANSIT: { bg: '#dbeafe', text: '#2563eb' },
+  RECEIVED:   { bg: '#ede9fe', text: '#7c3aed' },
+  COMPLETED:  { bg: '#d1fae5', text: '#059669' },
+  CANCELLED:  { bg: '#fee2e2', text: '#dc2626' },
+  FAILED:     { bg: '#fee2e2', text: '#dc2626' },
+  // lowercase from revamp API
+  pending:    { bg: '#fef3c7', text: '#d97706' },
+  accepted:   { bg: '#dcfce7', text: '#16a34a' },
+  completed:  { bg: '#d1fae5', text: '#059669' },
+  rejected:   { bg: '#fee2e2', text: '#dc2626' },
+};
 
-const ReferralsScreen = () => {
+const STATUS_TABS = ['all', 'pending', 'accepted', 'completed', 'cancelled'];
+
+const VALID_TRANSITIONS = {
+  DRAFT:      ['PENDING', 'CANCELLED'],
+  PENDING:    ['ACCEPTED', 'CANCELLED'],
+  ACCEPTED:   ['IN_TRANSIT', 'CANCELLED'],
+  IN_TRANSIT: ['RECEIVED', 'FAILED'],
+  RECEIVED:   ['COMPLETED'],
+};
+
+export default function ReferralsScreen() {
   const { userRole } = useAuth();
-  const isSpecialist = userRole === 'specialist';
+  const isFacilityAdmin = userRole === 'facility_admin';
 
-  const [referrals, setReferrals]   = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [referrals,  setReferrals]  = useState([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab]   = useState('all');
-  const [search, setSearch]         = useState('');
-  const [error, setError]           = useState('');
-  const [selectedReferral, setSelectedReferral] = useState(null);
-  const [showDetailModal, setShowDetailModal]   = useState(false);
+  const [activeTab,  setActiveTab]  = useState('all');
+  const [search,     setSearch]     = useState('');
+  const [selected,   setSelected]   = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
 
-  const fetchReferrals = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError('');
       const params = {};
       if (activeTab !== 'all') params.status = activeTab;
-      if (search)              params.search = search;
+      if (search) params.search = search;
       const res = await referralsAPI.getReferrals(params);
-      setReferrals(res.data?.results || res.data || []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      setReferrals(Array.isArray(res.data) ? res.data : res.data?.results || []);
+    } catch {}
+    setLoading(false);
+    setRefreshing(false);
   }, [activeTab, search]);
 
   useEffect(() => {
-    const t = setTimeout(fetchReferrals, search ? 400 : 0);
+    const t = setTimeout(load, search ? 400 : 0);
     return () => clearTimeout(t);
-  }, [fetchReferrals]);
+  }, [load]);
 
-  const onRefresh = () => { setRefreshing(true); fetchReferrals(); };
-
-  const openDetail = (item) => {
-    setSelectedReferral(item);
-    setShowDetailModal(true);
-  };
-
-  const handleAction = async (action, id, data) => {
-    try {
-      if (action === 'accept')   await referralsAPI.acceptReferral(id);
-      if (action === 'reject')   await referralsAPI.rejectReferral(id, data);
-      if (action === 'complete') await referralsAPI.completeReferral(id);
-      setShowDetailModal(false);
-      fetchReferrals();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    }
-  };
-
-  const renderItem = ({ item }) => (
-    <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.8}>
-      <Card style={styles.card}>
+  const renderItem = ({ item }) => {
+    const s = STATUS_COLORS[item.status] || STATUS_COLORS.DRAFT;
+    const patientName = item.emergency_case?.patient?.patient_name || item.patient_name || 'Patient';
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => { setSelected(item); setShowDetail(true); }}
+      >
         <View style={styles.cardTop}>
-          <View style={styles.cardLeft}>
-            <Text style={styles.cardId}>Referral #{item.id}</Text>
-            <Text style={styles.cardPatient} numberOfLines={1}>
-              {item.patient_name || item.case?.patient_name || 'Patient'}
-            </Text>
-          </View>
-          <StatusBadge status={item.status} />
-        </View>
-
-        <View style={styles.cardRoute}>
-          <View style={styles.facilityBox}>
-            <Text style={styles.facilityLabel}>From</Text>
-            <Text style={styles.facilityName} numberOfLines={1}>{item.from_facility_name || '—'}</Text>
-          </View>
-          <Ionicons name="arrow-forward" size={16} color={Colors.gray400} />
-          <View style={[styles.facilityBox, { alignItems: 'flex-end' }]}>
-            <Text style={styles.facilityLabel}>To</Text>
-            <Text style={styles.facilityName} numberOfLines={1}>{item.to_facility_name || '—'}</Text>
+          <Text style={styles.patientName}>{patientName}</Text>
+          <View style={[styles.badge, { backgroundColor: s.bg }]}>
+            <Text style={[styles.badgeText, { color: s.text }]}>{item.status}</Text>
           </View>
         </View>
-
-        {item.reason && (
-          <Text style={styles.cardReason} numberOfLines={2}>{item.reason}</Text>
+        <Text style={styles.meta}>
+          {isFacilityAdmin
+            ? `From: ${item.referring_facility_name || item.from_facility_name || '—'}`
+            : `To: ${item.receiving_facility_name   || item.to_facility_name   || '—'}`}
+        </Text>
+        {(item.emergency_case?.danger_signs?.length > 0) && (
+          <Text style={styles.meta} numberOfLines={1}>
+            ⚠ {item.emergency_case.danger_signs.slice(0, 2).map(s => s.replace(/_/g, ' ')).join(', ')}
+          </Text>
         )}
+      </TouchableOpacity>
+    );
+  };
 
-        <View style={styles.cardMeta}>
-          {item.priority && (
-            <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(item.priority).bg }]}>
-              <Text style={[styles.priorityText, { color: getPriorityColor(item.priority).text }]}>
-                {item.priority.toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
-        </View>
-      </Card>
-    </TouchableOpacity>
-  );
+  if (loading && !refreshing) return <ActivityIndicator style={styles.loader} color="#16a34a" />;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Referrals</Text>
-      </View>
+    <View style={styles.container}>
+      <Text style={styles.title}>{isFacilityAdmin ? 'Incoming Referrals' : 'Referrals'}</Text>
 
       {/* Search */}
       <View style={styles.searchWrap}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search-outline" size={17} color={Colors.gray400} style={{ marginRight: 8 }} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search referrals..."
-            placeholderTextColor={Colors.gray400}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={17} color={Colors.gray400} />
-            </TouchableOpacity>
-          )}
-        </View>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search referrals..."
+          placeholderTextColor="#94a3b8"
+          value={search}
+          onChangeText={setSearch}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch('')} style={styles.clearBtn}>
+            <Text style={styles.clearBtnText}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Status tabs */}
-      <View style={styles.tabs}>
-        {STATUS_TABS.map((tab) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsWrap} contentContainerStyle={styles.tabs}>
+        {STATUS_TABS.map(tab => (
           <TouchableOpacity
             key={tab}
             style={[styles.tab, activeTab === tab && styles.tabActive]}
@@ -152,168 +128,163 @@ const ReferralsScreen = () => {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
-      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      <FlatList
+        data={referrals}
+        keyExtractor={r => String(r.id)}
+        renderItem={renderItem}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor="#16a34a" />}
+        ListEmptyComponent={<Text style={styles.empty}>No referrals found.</Text>}
+      />
 
-      {loading && !refreshing ? (
-        <Spinner fullScreen />
-      ) : (
-        <FlatList
-          data={referrals}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderItem}
-          contentContainerStyle={[styles.list, referrals.length === 0 && { flex: 1 }]}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <EmptyState
-              icon="swap-horizontal-outline"
-              title="No referrals found"
-              message={search || activeTab !== 'all' ? 'Try adjusting your filters.' : 'No referrals yet.'}
-            />
-          }
-        />
-      )}
-
-      {/* Detail modal */}
-      {selectedReferral && (
+      {selected && (
         <ReferralDetailModal
-          visible={showDetailModal}
-          referral={selectedReferral}
-          isSpecialist={isSpecialist}
-          onClose={() => setShowDetailModal(false)}
-          onAction={handleAction}
+          visible={showDetail}
+          referral={selected}
+          onClose={() => setShowDetail(false)}
+          onUpdated={() => { setShowDetail(false); load(); }}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
-};
+}
 
-// ─── Referral Detail Modal ────────────────────────────────────────────────────
-const ReferralDetailModal = ({ visible, referral, isSpecialist, onClose, onAction }) => {
-  const [rejectReason, setRejectReason] = useState('');
-  const [showReject, setShowReject]     = useState(false);
-  const [loading, setLoading]           = useState(false);
+// ── Referral Detail Modal ──────────────────────────────────────────────────────
+function ReferralDetailModal({ visible, referral, onClose, onUpdated }) {
+  const [updating, setUpdating] = useState(false);
 
-  const act = async (action, data) => {
-    setLoading(true);
-    await onAction(action, referral.id, data);
-    setLoading(false);
+  const nextStatuses = VALID_TRANSITIONS[referral.status] || [];
+
+  const handleStatusUpdate = (newStatus) => {
+    Alert.alert(
+      `Mark as ${newStatus}?`,
+      `Update this referral to ${newStatus}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            setUpdating(true);
+            try {
+              await referralsAPI.updateStatus(referral.id, newStatus);
+              onUpdated();
+            } catch (err) {
+              Alert.alert('Error', getErrorMessage(err));
+            }
+            setUpdating(false);
+          },
+        },
+      ]
+    );
   };
 
+  const s = STATUS_COLORS[referral.status] || STATUS_COLORS.DRAFT;
+  const patient = referral.emergency_case?.patient || {};
+  const danger  = referral.emergency_case?.danger_signs || [];
+
   return (
-    <Modal visible={visible} onClose={onClose} title={`Referral #${referral.id}`} size="lg">
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Status</Text>
-        <StatusBadge status={referral.status} />
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Patient</Text>
-        <Text style={styles.detailValue}>{referral.patient_name || '—'}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>From</Text>
-        <Text style={styles.detailValue}>{referral.from_facility_name || '—'}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>To</Text>
-        <Text style={styles.detailValue}>{referral.to_facility_name || '—'}</Text>
-      </View>
-      {referral.reason && (
-        <View style={styles.detailBlock}>
-          <Text style={styles.detailLabel}>Reason</Text>
-          <Text style={styles.detailText}>{referral.reason}</Text>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <ScrollView style={styles.modal}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Referral</Text>
+          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
         </View>
-      )}
-      {referral.notes && (
-        <View style={styles.detailBlock}>
-          <Text style={styles.detailLabel}>Notes</Text>
-          <Text style={styles.detailText}>{referral.notes}</Text>
+
+        <Text style={styles.refId}>{String(referral.id).slice(0, 8).toUpperCase()}</Text>
+        <View style={[styles.statusBadgeLarge, { backgroundColor: s.bg }]}>
+          <Text style={[styles.statusBadgeLargeText, { color: s.text }]}>{referral.status}</Text>
         </View>
-      )}
 
-      <Divider />
+        <View style={styles.detailSection}>
+          <Text style={styles.detailSectionTitle}>Patient</Text>
+          <DRow label="Name"  value={patient.patient_name || '—'} />
+          <DRow label="Age"   value={patient.age ? `${patient.age} years` : null} />
+          <DRow label="Phone" value={patient.patient_phone_number} />
+        </View>
 
-      {/* Reject inline */}
-      {showReject && (
-        <View style={styles.rejectBox}>
-          <Input label="Reason for rejection" placeholder="Enter reason..." value={rejectReason} onChangeText={setRejectReason} multiline numberOfLines={2} />
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Button title="Cancel" variant="ghost" size="sm" onPress={() => setShowReject(false)} style={{ flex: 1 }} />
-            <Button title="Confirm Reject" variant="danger" size="sm" loading={loading} onPress={() => act('reject', { reason: rejectReason })} style={{ flex: 1 }} />
+        {danger.length > 0 && (
+          <View style={styles.detailSection}>
+            <Text style={styles.detailSectionTitle}>Danger Signs</Text>
+            {danger.map(s => <Text key={s} style={styles.dangerSign}>⚠ {s.replace(/_/g, ' ')}</Text>)}
           </View>
-        </View>
-      )}
+        )}
 
-      {/* Action buttons — specialist only for accept/reject, health worker for complete */}
-      <View style={styles.modalActions}>
-        {isSpecialist && referral.status === 'pending' && !showReject && (
-          <>
-            <Button title="Accept" variant="success" onPress={() => act('accept')} loading={loading} style={{ flex: 1 }} />
-            <Button title="Reject" variant="danger"  onPress={() => setShowReject(true)} style={{ flex: 1 }} />
-          </>
+        <View style={styles.detailSection}>
+          <Text style={styles.detailSectionTitle}>Route</Text>
+          <DRow label="From" value={referral.referring_facility_name || referral.from_facility_name} />
+          <DRow label="To"   value={referral.receiving_facility_name || referral.to_facility_name} />
+        </View>
+
+        {nextStatuses.length > 0 && !updating && (
+          <View style={styles.actionBtns}>
+            {nextStatuses.map(s => (
+              <TouchableOpacity
+                key={s}
+                style={[styles.actionBtn, (s === 'CANCELLED' || s === 'FAILED') ? styles.dangerBtn : styles.primaryBtn]}
+                onPress={() => handleStatusUpdate(s)}
+              >
+                <Text style={styles.actionBtnText}>{s}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
-        {referral.status === 'accepted' && (
-          <Button title="Mark Completed" onPress={() => act('complete')} loading={loading} fullWidth />
-        )}
-        {!showReject && (
-          <Button title="Close" variant="outline" onPress={onClose} fullWidth />
-        )}
-      </View>
+        {updating && <ActivityIndicator color="#16a34a" style={{ marginVertical: 16 }} />}
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </Modal>
   );
-};
+}
 
-const getPriorityColor = (p) => {
-  const map = { urgent: { bg: Colors.dangerLight, text: Colors.dangerDark }, emergency: { bg: '#fce7f3', text: '#9d174d' }, normal: { bg: Colors.gray100, text: Colors.gray600 } };
-  return map[p?.toLowerCase()] || map.normal;
-};
-
-const formatDate = (dt) => {
-  if (!dt) return '';
-  return new Date(dt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+function DRow({ label, value }) {
+  if (!value) return null;
+  return (
+    <View style={styles.drow}>
+      <Text style={styles.drowLabel}>{label}</Text>
+      <Text style={styles.drowValue}>{String(value)}</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: Colors.background },
-  header: { paddingHorizontal: Spacing[4], paddingVertical: Spacing[3], backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
-
-  searchWrap: { backgroundColor: Colors.white, paddingHorizontal: Spacing[4], paddingVertical: Spacing[2] },
-  searchBox:  { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, paddingHorizontal: Spacing[3], height: 44 },
-  searchInput:{ flex: 1, fontSize: Typography.base, color: Colors.textPrimary },
-
-  tabs:         { flexDirection: 'row', backgroundColor: Colors.white, paddingHorizontal: Spacing[4], paddingBottom: Spacing[2], gap: Spacing[2] },
-  tab:          { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, backgroundColor: Colors.gray100 },
-  tabActive:    { backgroundColor: Colors.primary },
-  tabText:      { fontSize: Typography.xs, fontWeight: Typography.medium, color: Colors.textSecondary },
-  tabTextActive:{ color: Colors.white },
-
-  list: { padding: Spacing[4], paddingBottom: Spacing[10] },
-
-  card:        { marginBottom: Spacing[3] },
-  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing[2] },
-  cardLeft:    { flex: 1, marginRight: Spacing[3] },
-  cardId:      { fontSize: Typography.xs, color: Colors.textMuted, marginBottom: 2 },
-  cardPatient: { fontSize: Typography.base, fontWeight: Typography.semibold, color: Colors.textPrimary },
-  cardRoute:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[2] },
-  facilityBox: { flex: 1 },
-  facilityLabel:{ fontSize: Typography.xs, color: Colors.textMuted },
-  facilityName: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
-  cardReason:  { fontSize: Typography.sm, color: Colors.textSecondary, marginBottom: Spacing[2] },
-  cardMeta:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full },
-  priorityText:  { fontSize: 10, fontWeight: Typography.bold },
-  cardDate:    { fontSize: Typography.xs, color: Colors.textMuted },
-
-  detailRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing[2] },
-  detailBlock: { paddingVertical: Spacing[2] },
-  detailLabel: { fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
-  detailValue: { fontSize: Typography.sm, color: Colors.textPrimary, flex: 1, textAlign: 'right' },
-  detailText:  { fontSize: Typography.sm, color: Colors.textPrimary, marginTop: 4, lineHeight: 20 },
-  rejectBox:   { backgroundColor: Colors.dangerLight + '60', padding: Spacing[3], borderRadius: Radius.md, marginBottom: Spacing[3] },
-  modalActions:{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: Spacing[2] },
+  container:   { flex: 1, backgroundColor: '#f8fafc' },
+  title:       { fontSize: 20, fontWeight: '700', color: '#0f172a', padding: 20, paddingTop: 56, paddingBottom: 8 },
+  searchWrap:  { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14 },
+  searchInput: { flex: 1, fontSize: 15, color: '#0f172a', paddingVertical: 12 },
+  clearBtn:    { padding: 4 },
+  clearBtnText:{ fontSize: 14, color: '#94a3b8' },
+  tabsWrap:    { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  tabs:        { paddingHorizontal: 16, paddingVertical: 8, gap: 8, flexDirection: 'row' },
+  tab:         { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f1f5f9' },
+  tabActive:   { backgroundColor: '#16a34a' },
+  tabText:     { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  tabTextActive:{ color: '#fff' },
+  list:        { padding: 16, gap: 12 },
+  loader:      { flex: 1, marginTop: 60 },
+  card:        { backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
+  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  patientName: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
+  badge:       { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  badgeText:   { fontSize: 11, fontWeight: '700' },
+  meta:        { fontSize: 12, color: '#64748b', marginTop: 2 },
+  empty:       { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
+  modal:       { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 16 },
+  modalTitle:  { fontSize: 20, fontWeight: '700', color: '#0f172a' },
+  modalClose:  { fontSize: 22, color: '#64748b', padding: 4 },
+  refId:       { fontSize: 13, color: '#94a3b8', marginBottom: 8 },
+  statusBadgeLarge:     { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, marginBottom: 20 },
+  statusBadgeLargeText: { fontWeight: '700', fontSize: 13 },
+  detailSection:      { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 },
+  detailSectionTitle: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  drow:        { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  drowLabel:   { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  drowValue:   { fontSize: 13, color: '#0f172a', fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
+  dangerSign:  { fontSize: 14, color: '#dc2626', marginBottom: 4 },
+  actionBtns:  { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 32 },
+  actionBtn:   { flex: 1, borderRadius: 10, padding: 14, alignItems: 'center' },
+  primaryBtn:  { backgroundColor: '#16a34a' },
+  dangerBtn:   { backgroundColor: '#dc2626' },
+  actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
-
-export default ReferralsScreen;

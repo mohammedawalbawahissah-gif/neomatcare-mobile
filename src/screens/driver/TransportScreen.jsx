@@ -1,287 +1,272 @@
+/**
+ * screens/driver/TransportScreen.jsx
+ * Original NeoMatCare transport UI — restored with new logic.
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  RefreshControl, StyleSheet,
+  StyleSheet, RefreshControl, ActivityIndicator, Alert, Modal, ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-
 import { transportAPI, getErrorMessage } from '../../api/client';
-import {
-  Card, StatusBadge, Button, Spinner, EmptyState,
-  ErrorBanner, Modal, Divider,
-} from '../../components/ui';
-import Colors from '../../constants/colors';
-import { Typography, Spacing, Radius } from '../../constants/theme';
+
+const STATUS_COLORS = {
+  requested:  { bg: '#fef3c7', text: '#d97706' },
+  accepted:   { bg: '#dcfce7', text: '#16a34a' },
+  dispatched: { bg: '#dbeafe', text: '#2563eb' },
+  in_transit: { bg: '#dbeafe', text: '#2563eb' },
+  arrived:    { bg: '#ede9fe', text: '#7c3aed' },
+  delivered:  { bg: '#d1fae5', text: '#059669' },
+  completed:  { bg: '#d1fae5', text: '#059669' },
+  cancelled:  { bg: '#fee2e2', text: '#dc2626' },
+  pending:    { bg: '#fef3c7', text: '#d97706' },
+};
+
+const NEXT_STATUS = {
+  requested:  'accepted',
+  accepted:   'dispatched',
+  dispatched: 'arrived',
+  arrived:    'completed',
+  pending:    'accepted',
+  in_transit: 'delivered',
+};
 
 const STATUS_TABS = ['all', 'pending', 'accepted', 'in_transit', 'delivered'];
 
-const TransportScreen = () => {
-  const [transports, setTransports] = useState([]);
-  const [loading, setLoading]       = useState(true);
+export default function TransportScreen() {
+  const [requests,   setRequests]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab]   = useState('all');
-  const [error, setError]           = useState('');
-  const [selected, setSelected]     = useState(null);
+  const [activeTab,  setActiveTab]  = useState('all');
+  const [selected,   setSelected]   = useState(null);
   const [showDetail, setShowDetail] = useState(false);
 
-  const fetchTransports = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError('');
       const params = {};
       if (activeTab !== 'all') params.status = activeTab;
       const res = await transportAPI.getTransports(params);
-      setTransports(res.data?.results || res.data || []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      setRequests(Array.isArray(res.data) ? res.data : res.data?.results || []);
+    } catch {}
+    setLoading(false);
+    setRefreshing(false);
   }, [activeTab]);
 
-  useEffect(() => { fetchTransports(); }, [fetchTransports]);
+  useEffect(() => { load(); }, [load]);
 
-  const onRefresh = () => { setRefreshing(true); fetchTransports(); };
-
-  const openDetail = (item) => { setSelected(item); setShowDetail(true); };
-
-  const handleAction = async (action, id) => {
+  const updateStatus = async (id, newStatus) => {
     try {
-      if (action === 'accept')   await transportAPI.acceptTransport(id);
-      if (action === 'start')    await transportAPI.startTransport(id);
-      if (action === 'complete') await transportAPI.completeTransport(id);
+      await transportAPI.updateTransportStatus(id, { status: newStatus });
+      load();
       setShowDetail(false);
-      fetchTransports();
     } catch (err) {
-      setError(getErrorMessage(err));
+      Alert.alert('Error', getErrorMessage(err));
     }
   };
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.8}>
-      <Card style={styles.card}>
+  const renderItem = ({ item }) => {
+    const s    = STATUS_COLORS[item.status] || STATUS_COLORS.requested;
+    const next = NEXT_STATUS[item.status];
+    const caseId = typeof item.emergency_case === 'string' || typeof item.emergency_case === 'number'
+      ? String(item.emergency_case).slice(0, 8).toUpperCase()
+      : item.id;
+
+    return (
+      <TouchableOpacity style={styles.card} onPress={() => { setSelected(item); setShowDetail(true); }}>
         <View style={styles.cardTop}>
-          <View style={styles.cardLeft}>
-            <Text style={styles.cardId}>Trip #{item.id}</Text>
-            <Text style={styles.cardPatient} numberOfLines={1}>
-              {item.patient_name || item.referral?.patient_name || 'Patient'}
-            </Text>
+          <Text style={styles.caseId}>
+            {item.patient_name || item.referral?.patient_name || `Case #${caseId}`}
+          </Text>
+          <View style={[styles.badge, { backgroundColor: s.bg }]}>
+            <Text style={[styles.badgeText, { color: s.text }]}>{item.status.toUpperCase()}</Text>
           </View>
-          <StatusBadge status={item.status} />
         </View>
 
         {/* Route */}
         <View style={styles.routeRow}>
           <View style={styles.routePoint}>
-            <View style={[styles.routeDot, { backgroundColor: Colors.success }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{item.pickup_location || item.from_facility || 'Pickup'}</Text>
+            <View style={[styles.routeDot, { backgroundColor: '#16a34a' }]} />
+            <Text style={styles.routeText} numberOfLines={1}>
+              {item.pickup_location || item.from_facility || item.pickup_facility_name || 'Pickup'}
+            </Text>
           </View>
-          <View style={styles.routeLine} />
+          <Text style={styles.routeArrow}>→</Text>
           <View style={styles.routePoint}>
-            <View style={[styles.routeDot, { backgroundColor: Colors.danger }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{item.dropoff_location || item.to_facility || 'Destination'}</Text>
+            <View style={[styles.routeDot, { backgroundColor: '#dc2626' }]} />
+            <Text style={styles.routeText} numberOfLines={1}>
+              {item.dropoff_location || item.to_facility || item.destination_facility_name || 'Destination'}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.cardMeta}>
-          {item.scheduled_time && (
-            <View style={styles.metaItem}>
-              <Ionicons name="calendar-outline" size={13} color={Colors.textMuted} />
-              <Text style={styles.metaText}>{formatDate(item.scheduled_time)}</Text>
-            </View>
-          )}
-          {item.distance_km && (
-            <View style={styles.metaItem}>
-              <Ionicons name="navigate-outline" size={13} color={Colors.textMuted} />
-              <Text style={styles.metaText}>{item.distance_km} km</Text>
-            </View>
-          )}
-        </View>
-      </Card>
-    </TouchableOpacity>
-  );
+        {item.pickup_notes ? <Text style={styles.meta}>Notes: {item.pickup_notes}</Text> : null}
+        {item.estimated_minutes ? <Text style={styles.meta}>Est: {item.estimated_minutes} min</Text> : null}
+
+        {next && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => Alert.alert(
+              `Mark as ${next.toUpperCase()}?`, '',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Confirm', onPress: () => updateStatus(item.id, next) },
+              ]
+            )}
+          >
+            <Text style={styles.actionBtnText}>→ {next.toUpperCase()}</Text>
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading && !refreshing) return <ActivityIndicator style={styles.loader} color="#16a34a" />;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Transport</Text>
-        <Text style={styles.headerSub}>{transports.length} assignment{transports.length !== 1 ? 's' : ''}</Text>
-      </View>
+    <View style={styles.container}>
+      <Text style={styles.title}>Transport</Text>
 
-      {/* Tabs */}
-      <View style={styles.tabsWrap}>
-        <FlatList
-          horizontal
-          data={STATUS_TABS}
-          keyExtractor={(t) => t}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabs}
-          renderItem={({ item: tab }) => (
-            <TouchableOpacity
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
+      {/* Status tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsWrap} contentContainerStyle={styles.tabs}>
+        {STATUS_TABS.map(tab => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tab, activeTab === tab && styles.tabActive]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              {tab.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-      <ErrorBanner message={error} onDismiss={() => setError('')} />
-
-      {loading && !refreshing ? (
-        <Spinner fullScreen />
-      ) : (
-        <FlatList
-          data={transports}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderItem}
-          contentContainerStyle={[styles.list, transports.length === 0 && { flex: 1 }]}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <EmptyState
-              icon="car-outline"
-              title="No transport assignments"
-              message={activeTab !== 'all' ? 'No trips with this status.' : 'Your transport assignments will appear here.'}
-            />
-          }
-        />
-      )}
+      <FlatList
+        data={requests}
+        keyExtractor={r => String(r.id)}
+        renderItem={renderItem}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor="#16a34a" />}
+        ListEmptyComponent={<Text style={styles.empty}>No transport assignments.</Text>}
+      />
 
       {selected && (
         <TransportDetailModal
           visible={showDetail}
           transport={selected}
           onClose={() => setShowDetail(false)}
-          onAction={handleAction}
+          onAction={updateStatus}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
-};
+}
 
-// ─── Detail Modal ─────────────────────────────────────────────────────────────
-const TransportDetailModal = ({ visible, transport, onClose, onAction }) => {
+// ── Transport Detail Modal ─────────────────────────────────────────────────────
+function TransportDetailModal({ visible, transport, onClose, onAction }) {
   const [loading, setLoading] = useState(false);
+  const s    = STATUS_COLORS[transport.status] || STATUS_COLORS.requested;
+  const next = NEXT_STATUS[transport.status];
 
-  const act = async (action) => {
+  const act = async (newStatus) => {
     setLoading(true);
-    await onAction(action, transport.id);
+    await onAction(transport.id, newStatus);
     setLoading(false);
   };
 
   return (
-    <Modal visible={visible} onClose={onClose} title={`Trip #${transport.id}`} size="lg">
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Status</Text>
-        <StatusBadge status={transport.status} />
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Patient</Text>
-        <Text style={styles.detailValue}>{transport.patient_name || '—'}</Text>
-      </View>
-
-      <Divider />
-
-      <Text style={styles.detailSectionLabel}>Route</Text>
-      <View style={styles.routeDetail}>
-        <View style={styles.routeDetailPoint}>
-          <Ionicons name="radio-button-on" size={16} color={Colors.success} />
-          <View style={styles.routeDetailText}>
-            <Text style={styles.routeDetailLabel}>Pickup</Text>
-            <Text style={styles.routeDetailValue}>{transport.pickup_location || transport.from_facility || '—'}</Text>
-          </View>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <ScrollView style={styles.modal}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Trip Details</Text>
+          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
         </View>
-        <View style={styles.routeDetailLine} />
-        <View style={styles.routeDetailPoint}>
-          <Ionicons name="location" size={16} color={Colors.danger} />
-          <View style={styles.routeDetailText}>
-            <Text style={styles.routeDetailLabel}>Destination</Text>
-            <Text style={styles.routeDetailValue}>{transport.dropoff_location || transport.to_facility || '—'}</Text>
-          </View>
+
+        <View style={[styles.statusBadgeLarge, { backgroundColor: s.bg }]}>
+          <Text style={[styles.statusBadgeLargeText, { color: s.text }]}>{transport.status.toUpperCase()}</Text>
         </View>
-      </View>
 
-      {transport.notes && (
-        <>
-          <Divider />
-          <Text style={styles.detailSectionLabel}>Notes</Text>
-          <Text style={styles.detailText}>{transport.notes}</Text>
-        </>
-      )}
+        <View style={styles.detailSection}>
+          <DRow label="Patient"   value={transport.patient_name || transport.referral?.patient_name} />
+          <DRow label="Pickup"    value={transport.pickup_location || transport.from_facility || transport.pickup_facility_name} />
+          <DRow label="Drop-off"  value={transport.dropoff_location || transport.to_facility || transport.destination_facility_name} />
+          {transport.estimated_minutes && <DRow label="Est. Time"  value={`${transport.estimated_minutes} min`} />}
+          {transport.distance_km && <DRow label="Distance" value={`${transport.distance_km} km`} />}
+          {transport.notes && <DRow label="Notes" value={transport.notes} />}
+          {transport.pickup_notes && <DRow label="Notes" value={transport.pickup_notes} />}
+        </View>
 
-      <Divider />
+        {next && !loading && (
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => Alert.alert(
+              `Mark as ${next.toUpperCase()}?`, '',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Confirm', onPress: () => act(next) },
+              ]
+            )}
+          >
+            <Text style={styles.primaryBtnText}>→ {next.toUpperCase()}</Text>
+          </TouchableOpacity>
+        )}
+        {loading && <ActivityIndicator color="#16a34a" style={{ marginVertical: 16 }} />}
 
-      <View style={styles.modalActions}>
-        {transport.status === 'pending' && (
-          <Button title="Accept Trip" icon="checkmark-circle-outline" onPress={() => act('accept')} loading={loading} fullWidth />
-        )}
-        {transport.status === 'accepted' && (
-          <Button title="Start Trip" icon="car-outline" onPress={() => act('start')} loading={loading} fullWidth />
-        )}
-        {transport.status === 'in_transit' && (
-          <Button title="Mark Delivered" icon="flag-outline" variant="success" onPress={() => act('complete')} loading={loading} fullWidth />
-        )}
-        <Button title="Close" variant="outline" onPress={onClose} fullWidth />
-      </View>
+        <TouchableOpacity style={[styles.outlineBtn, { marginTop: 10 }]} onPress={onClose}>
+          <Text style={styles.outlineBtnText}>Close</Text>
+        </TouchableOpacity>
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </Modal>
   );
-};
+}
 
-const formatDate = (dt) => {
-  if (!dt) return '';
-  return new Date(dt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+function DRow({ label, value }) {
+  if (!value) return null;
+  return (
+    <View style={styles.drow}>
+      <Text style={styles.drowLabel}>{label}</Text>
+      <Text style={styles.drowValue}>{String(value)}</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-  safe:        { flex: 1, backgroundColor: Colors.background },
-  header:      { paddingHorizontal: Spacing[4], paddingVertical: Spacing[3], backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
-  headerSub:   { fontSize: Typography.xs, color: Colors.textSecondary, marginTop: 1 },
-
-  tabsWrap: { backgroundColor: Colors.white },
-  tabs:     { paddingHorizontal: Spacing[4], paddingVertical: Spacing[2], gap: Spacing[2] },
-  tab:      { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, backgroundColor: Colors.gray100 },
-  tabActive:    { backgroundColor: Colors.primary },
-  tabText:      { fontSize: Typography.xs, fontWeight: Typography.medium, color: Colors.textSecondary },
-  tabTextActive:{ color: Colors.white },
-
-  list: { padding: Spacing[4], paddingBottom: Spacing[10] },
-
-  card:        { marginBottom: Spacing[3] },
-  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing[3] },
-  cardLeft:    { flex: 1, marginRight: Spacing[3] },
-  cardId:      { fontSize: Typography.xs, color: Colors.textMuted, marginBottom: 2 },
-  cardPatient: { fontSize: Typography.base, fontWeight: Typography.semibold, color: Colors.textPrimary },
-
-  routeRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing[2] },
-  routePoint: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  routeDot:   { width: 8, height: 8, borderRadius: 4 },
-  routeText:  { fontSize: Typography.xs, color: Colors.textSecondary, flex: 1 },
-  routeLine:  { width: 20, height: 1, backgroundColor: Colors.gray300, marginHorizontal: 4 },
-
-  cardMeta: { flexDirection: 'row', gap: Spacing[4] },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { fontSize: Typography.xs, color: Colors.textMuted },
-
-  detailRow:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing[2] },
-  detailLabel:        { fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
-  detailValue:        { fontSize: Typography.sm, color: Colors.textPrimary },
-  detailSectionLabel: { fontSize: Typography.xs, fontWeight: Typography.semibold, color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing[2] },
-  detailText:         { fontSize: Typography.sm, color: Colors.textPrimary, lineHeight: 20 },
-
-  routeDetail:       { marginBottom: Spacing[2] },
-  routeDetailPoint:  { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing[3] },
-  routeDetailLine:   { width: 1, height: 20, backgroundColor: Colors.gray300, marginLeft: 8, marginVertical: 4 },
-  routeDetailText:   { flex: 1 },
-  routeDetailLabel:  { fontSize: Typography.xs, color: Colors.textMuted },
-  routeDetailValue:  { fontSize: Typography.sm, color: Colors.textPrimary, fontWeight: Typography.medium },
-
-  modalActions: { gap: 10 },
+  container:   { flex: 1, backgroundColor: '#f8fafc' },
+  title:       { fontSize: 20, fontWeight: '700', color: '#0f172a', padding: 20, paddingTop: 56, paddingBottom: 8 },
+  tabsWrap:    { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  tabs:        { paddingHorizontal: 16, paddingVertical: 8, gap: 8, flexDirection: 'row' },
+  tab:         { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f1f5f9' },
+  tabActive:   { backgroundColor: '#16a34a' },
+  tabText:     { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  tabTextActive:{ color: '#fff' },
+  list:        { padding: 16, gap: 12 },
+  loader:      { flex: 1, marginTop: 60 },
+  card:        { backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
+  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  caseId:      { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1, marginRight: 8 },
+  badge:       { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  badgeText:   { fontSize: 10, fontWeight: '700' },
+  routeRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 6 },
+  routePoint:  { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  routeDot:    { width: 8, height: 8, borderRadius: 4 },
+  routeText:   { fontSize: 12, color: '#64748b', flex: 1 },
+  routeArrow:  { fontSize: 14, color: '#94a3b8' },
+  meta:        { fontSize: 12, color: '#64748b', marginBottom: 2 },
+  actionBtn:   { marginTop: 12, backgroundColor: '#16a34a', borderRadius: 8, padding: 10, alignItems: 'center' },
+  actionBtnText:{ color: '#fff', fontWeight: '700', fontSize: 13 },
+  empty:       { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
+  modal:       { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 16 },
+  modalTitle:  { fontSize: 20, fontWeight: '700', color: '#0f172a' },
+  modalClose:  { fontSize: 22, color: '#64748b', padding: 4 },
+  statusBadgeLarge:     { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, marginBottom: 20 },
+  statusBadgeLargeText: { fontWeight: '700', fontSize: 13 },
+  detailSection:{ backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 },
+  drow:        { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  drowLabel:   { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  drowValue:   { fontSize: 13, color: '#0f172a', fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
+  primaryBtn:  { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  primaryBtnText:{ color: '#fff', fontWeight: '700', fontSize: 14 },
+  outlineBtn:  { borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  outlineBtnText:{ color: '#16a34a', fontWeight: '700', fontSize: 14 },
 });
-
-export default TransportScreen;

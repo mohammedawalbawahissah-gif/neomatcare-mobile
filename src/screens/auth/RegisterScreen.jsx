@@ -1,122 +1,87 @@
+/**
+ * screens/auth/RegisterScreen.jsx
+ * Original NeoMatCare register UI — restored, with new register logic.
+ */
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, KeyboardAvoidingView,
-  Platform, ScrollView, StyleSheet, ActivityIndicator,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Alert, Modal, FlatList,
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
-import { Button, Input, Select, ErrorBanner } from '../../components/ui';
 import { facilitiesAPI } from '../../api/client';
-import Colors from '../../constants/colors';
-import { Typography, Spacing, Radius } from '../../constants/theme';
 
-const ROLE_OPTIONS = [
-  { value: 'health_worker',  label: 'Health Worker' },
-  { value: 'specialist',     label: 'Specialist' },
-  { value: 'facility_admin', label: 'Facility Admin' },
-  { value: 'driver',         label: 'Driver' },
-  { value: 'superadmin',     label: 'Super Admin' },
+const ROLES = [
+  { value: 'health_worker',  label: 'Health Worker',  needsFacility: true },
+  { value: 'facility_admin', label: 'Facility Admin',  needsFacility: true },
+  { value: 'specialist',     label: 'Specialist',      needsFacility: false },
+  { value: 'driver',         label: 'Driver',          needsFacility: true },
+  { value: 'superadmin',     label: 'Superadmin',      needsFacility: false },
 ];
 
-// Roles that must pick a facility
-const FACILITY_REQUIRED_ROLES = ['health_worker', 'facility_admin'];
-
-const RegisterScreen = ({ navigation }) => {
+export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
 
   const [form, setForm] = useState({
-    first_name:       '',
-    last_name:        '',
-    email:            '',
-    phone:            '',
-    role:             '',
-    facility:         '',   // stores facility UUID
-    password:         '',
-    confirm_password: '',
+    first_name: '', last_name: '', email: '',
+    phone: '', role: 'health_worker', facility: '',
+    password: '', confirm_password: '',
   });
-  const [errors, setErrors]             = useState({});
-  const [loading, setLoading]           = useState(false);
-  const [apiError, setApiError]         = useState('');
-  const [facilities, setFacilities]     = useState([]);
+  const [facilities,        setFacilities]        = useState([]);
   const [facilitiesLoading, setFacilitiesLoading] = useState(false);
+  const [showFacilityPicker, setShowFacilityPicker] = useState(false);
+  const [loading,  setLoading]  = useState(false);
 
-  // ── Fetch facilities whenever a role that needs one is selected ──
+  const selectedRole     = ROLES.find(r => r.value === form.role);
+  const needsFacility    = selectedRole?.needsFacility;
+  const selectedFacility = facilities.find(f => f.id === form.facility);
+
   useEffect(() => {
-    if (!FACILITY_REQUIRED_ROLES.includes(form.role)) {
-      setFacilities([]);
-      setForm((p) => ({ ...p, facility: '' }));
-      return;
-    }
-
+    if (!needsFacility) { setFacilities([]); setForm(p => ({ ...p, facility: '' })); return; }
     let cancelled = false;
-    const fetchFacilities = async () => {
-      setFacilitiesLoading(true);
-      try {
-        const res = await facilitiesAPI.getFacilities();
-        if (!cancelled) {
-          setFacilities(
-            (res.data || []).map((f) => ({ value: f.id, label: f.name }))
-          );
-        }
-      } catch {
-        if (!cancelled) setFacilities([]);
-      } finally {
-        if (!cancelled) setFacilitiesLoading(false);
-      }
-    };
-    fetchFacilities();
+    setFacilitiesLoading(true);
+    facilitiesAPI.getFacilities()
+      .then(({ data }) => { if (!cancelled) setFacilities(Array.isArray(data) ? data : data.results || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setFacilitiesLoading(false); });
     return () => { cancelled = true; };
   }, [form.role]);
 
-  const set = (field) => (value) => {
-    setForm((p) => ({ ...p, [field]: value }));
-    if (errors[field]) setErrors((p) => ({ ...p, [field]: '' }));
-    if (apiError) setApiError('');
-  };
-
-  const validate = () => {
-    const e = {};
-    if (!form.first_name.trim()) e.first_name = 'First name is required';
-    if (!form.last_name.trim())  e.last_name  = 'Last name is required';
-    if (!form.email.trim())      e.email      = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email';
-    if (!form.role)              e.role       = 'Please select a role';
-    if (FACILITY_REQUIRED_ROLES.includes(form.role) && !form.facility)
-      e.facility = `A facility is required for the ${form.role.replace('_', ' ')} role`;
-    if (!form.password)          e.password   = 'Password is required';
-    else if (form.password.length < 8) e.password = 'Password must be at least 8 characters';
-    if (!form.confirm_password)  e.confirm_password = 'Please confirm your password';
-    else if (form.password !== form.confirm_password) e.confirm_password = 'Passwords do not match';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+  const set = (field) => (value) => setForm(p => ({ ...p, [field]: value }));
 
   const handleRegister = async () => {
-    if (!validate()) return;
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim() || !form.password) {
+      Alert.alert('Required', 'Please fill in all required fields.'); return;
+    }
+    if (needsFacility && !form.facility) {
+      Alert.alert('Required', `Please select a facility for the ${selectedRole?.label} role.`); return;
+    }
+    if (form.password !== form.confirm_password) {
+      Alert.alert('Error', 'Passwords do not match.'); return;
+    }
+    if (form.password.length < 8) {
+      Alert.alert('Error', 'Password must be at least 8 characters.'); return;
+    }
     setLoading(true);
-    setApiError('');
-
     const payload = {
-      name:      `${form.first_name.trim()} ${form.last_name.trim()}`,
-      email:     form.email.trim(),
-      phone:     form.phone.trim(),
-      role:      form.role,
-      password:  form.password,
+      name: `${form.first_name.trim()} ${form.last_name.trim()}`,
+      email: form.email.trim().toLowerCase(),
+      phone: form.phone.trim(),
+      role: form.role,
+      password: form.password,
       password2: form.confirm_password,
     };
     if (form.facility) payload.facility = form.facility;
-
     const result = await register(payload);
     setLoading(false);
     if (!result.success) {
-      setApiError(result.error || 'Registration failed. Please try again.');
+      Alert.alert('Registration failed', result.error || 'Please try again.');
     }
   };
 
-  const needsFacility = FACILITY_REQUIRED_ROLES.includes(form.role);
-
   return (
     <KeyboardAvoidingView
-      style={styles.root}
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
@@ -124,130 +89,80 @@ const RegisterScreen = ({ navigation }) => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Brand header */}
-        <View style={styles.brandSection}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>N</Text>
-          </View>
-          <Text style={styles.brandName}>NeoMatCare</Text>
-          <Text style={styles.brandTagline}>Create your account</Text>
-        </View>
-
-        {/* Card */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Register</Text>
-
-          <ErrorBanner message={apiError} onDismiss={() => setApiError('')} />
+          <View style={styles.logoRow}>
+            <View style={styles.logoDot} />
+            <Text style={styles.logoText}>NeoMatCare</Text>
+          </View>
+          <Text style={styles.subtitle}>Create your account</Text>
 
           {/* Name row */}
-          <View style={styles.row}>
-            <Input
-              label="First name"
-              placeholder="John"
-              value={form.first_name}
-              onChangeText={set('first_name')}
-              error={errors.first_name}
-              style={styles.half}
-              required
-            />
-            <View style={{ width: Spacing[3] }} />
-            <Input
-              label="Last name"
-              placeholder="Doe"
-              value={form.last_name}
-              onChangeText={set('last_name')}
-              error={errors.last_name}
-              style={styles.half}
-              required
-            />
+          <View style={styles.nameRow}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.label}>First Name *</Text>
+              <TextInput style={styles.input} value={form.first_name} onChangeText={set('first_name')} placeholder="John" placeholderTextColor="#94a3b8" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Last Name *</Text>
+              <TextInput style={styles.input} value={form.last_name} onChangeText={set('last_name')} placeholder="Doe" placeholderTextColor="#94a3b8" />
+            </View>
           </View>
 
-          <Input
-            label="Email address"
-            placeholder="you@example.com"
-            value={form.email}
-            onChangeText={set('email')}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            icon="mail-outline"
-            error={errors.email}
-            required
-          />
+          <Text style={styles.label}>Email *</Text>
+          <TextInput style={styles.input} value={form.email} onChangeText={set('email')} placeholder="you@facility.org" placeholderTextColor="#94a3b8" autoCapitalize="none" keyboardType="email-address" />
 
-          <Input
-            label="Phone number"
-            placeholder="+233 XX XXX XXXX"
-            value={form.phone}
-            onChangeText={set('phone')}
-            keyboardType="phone-pad"
-            icon="call-outline"
-            error={errors.phone}
-          />
+          <Text style={styles.label}>Phone</Text>
+          <TextInput style={styles.input} value={form.phone} onChangeText={set('phone')} placeholder="+233 XX XXX XXXX" placeholderTextColor="#94a3b8" keyboardType="phone-pad" />
 
-          <Select
-            label="Role"
-            placeholder="Select your role"
-            value={form.role}
-            onValueChange={set('role')}
-            options={ROLE_OPTIONS}
-            error={errors.role}
-            required
-          />
+          <Text style={styles.label}>Role</Text>
+          <View style={styles.roleGrid}>
+            {ROLES.map(r => (
+              <TouchableOpacity
+                key={r.value}
+                style={[styles.roleChip, form.role === r.value && styles.roleChipActive]}
+                onPress={() => { set('role')(r.value); set('facility')(''); }}
+              >
+                <Text style={[styles.roleChipText, form.role === r.value && styles.roleChipTextActive]}>
+                  {r.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-          {/* Facility — dropdown for roles that require it, hidden otherwise */}
           {needsFacility && (
-            facilitiesLoading ? (
-              <View style={styles.facilityLoading}>
-                <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.facilityLoadingText}>Loading facilities…</Text>
-              </View>
-            ) : (
-              <Select
-                label="Facility"
-                placeholder="Select your facility"
-                value={form.facility}
-                onValueChange={set('facility')}
-                options={facilities}
-                error={errors.facility}
-                required
-              />
-            )
+            <>
+              <Text style={styles.label}>Facility *</Text>
+              {facilitiesLoading ? (
+                <View style={styles.facilityLoading}>
+                  <ActivityIndicator size="small" color="#16a34a" />
+                  <Text style={styles.facilityLoadingText}>Loading facilities…</Text>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.facilityPicker} onPress={() => setShowFacilityPicker(true)}>
+                  <Text style={[styles.facilityPickerText, !form.facility && { color: '#94a3b8' }]}>
+                    {selectedFacility ? selectedFacility.name : 'Select facility…'}
+                  </Text>
+                  <Text style={styles.chevron}>›</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
 
-          <Input
-            label="Password"
-            placeholder="Min. 8 characters"
-            value={form.password}
-            onChangeText={set('password')}
-            secureTextEntry
-            icon="lock-closed-outline"
-            error={errors.password}
-            required
-          />
+          <Text style={styles.label}>Password *</Text>
+          <TextInput style={styles.input} value={form.password} onChangeText={set('password')} placeholder="Min. 8 characters" placeholderTextColor="#94a3b8" secureTextEntry />
 
-          <Input
-            label="Confirm password"
-            placeholder="Re-enter your password"
-            value={form.confirm_password}
-            onChangeText={set('confirm_password')}
-            secureTextEntry
-            icon="lock-closed-outline"
-            error={errors.confirm_password}
-            required
-          />
+          <Text style={styles.label}>Confirm Password *</Text>
+          <TextInput style={styles.input} value={form.confirm_password} onChangeText={set('confirm_password')} placeholder="Re-enter password" placeholderTextColor="#94a3b8" secureTextEntry />
 
-          <Button
-            title="Create Account"
+          <TouchableOpacity
+            style={[styles.btn, loading && styles.btnDisabled]}
             onPress={handleRegister}
-            loading={loading}
-            fullWidth
-            size="lg"
-            style={styles.submitBtn}
-          />
+            disabled={loading}
+          >
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Create Account</Text>}
+          </TouchableOpacity>
         </View>
 
-        {/* Login link */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>Already have an account? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('Login')}>
@@ -255,34 +170,84 @@ const RegisterScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Facility picker modal */}
+      <Modal visible={showFacilityPicker} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.pickerModal}>
+          <View style={styles.pickerHeader}>
+            <Text style={styles.pickerTitle}>Select Facility</Text>
+            <TouchableOpacity onPress={() => setShowFacilityPicker(false)}>
+              <Text style={styles.pickerClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={facilities}
+            keyExtractor={f => f.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[styles.facilityRow, form.facility === item.id && styles.facilityRowActive]}
+                onPress={() => { set('facility')(item.id); setShowFacilityPicker(false); }}
+              >
+                <View>
+                  <Text style={styles.facilityName}>{item.name}</Text>
+                  <Text style={styles.facilitySub}>Level {item.level} · {item.district || item.region || '—'}</Text>
+                </View>
+                {form.facility === item.id && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={<Text style={styles.empty}>No facilities found.</Text>}
+          />
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  root:   { flex: 1, backgroundColor: Colors.background },
-  scroll: { flexGrow: 1, padding: Spacing[5], paddingTop: Spacing[8] },
-
-  brandSection: { alignItems: 'center', marginBottom: Spacing[6] },
-  logoCircle:   { width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing[3] },
-  logoText:     { fontSize: 28, fontWeight: Typography.bold, color: Colors.white },
-  brandName:    { fontSize: Typography['2xl'], fontWeight: Typography.bold, color: Colors.textPrimary },
-  brandTagline: { fontSize: Typography.sm, color: Colors.textSecondary, marginTop: 4 },
-
-  card:      { backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing[6], shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 },
-  cardTitle: { fontSize: Typography.xl, fontWeight: Typography.semibold, color: Colors.textPrimary, marginBottom: Spacing[5] },
-
-  row:  { flexDirection: 'row' },
-  half: { flex: 1 },
-
-  facilityLoading:     { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing[3], gap: Spacing[2] },
-  facilityLoadingText: { fontSize: Typography.sm, color: Colors.textSecondary },
-
-  submitBtn: { marginTop: Spacing[2] },
-
-  footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing[6], marginBottom: Spacing[4] },
-  footerText: { fontSize: Typography.sm, color: Colors.textSecondary },
-  footerLink: { fontSize: Typography.sm, color: Colors.primary, fontWeight: Typography.semibold },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  scroll:    { flexGrow: 1, padding: 24, paddingTop: 40 },
+  card: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 28,
+    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+  },
+  logoRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  logoDot:  { width: 10, height: 10, borderRadius: 5, backgroundColor: '#16a34a', marginRight: 8 },
+  logoText: { fontSize: 22, fontWeight: '700', color: '#0f172a' },
+  subtitle: { fontSize: 13, color: '#64748b', marginBottom: 24 },
+  nameRow:  { flexDirection: 'row' },
+  label:    { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 14 },
+  input: {
+    borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#0f172a',
+  },
+  roleGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  roleChip:           { borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff' },
+  roleChipActive:     { borderColor: '#16a34a', backgroundColor: '#dcfce7' },
+  roleChipText:       { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  roleChipTextActive: { color: '#16a34a', fontWeight: '700' },
+  facilityLoading:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 8 },
+  facilityLoadingText: { fontSize: 13, color: '#64748b' },
+  facilityPicker: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#fff',
+  },
+  facilityPickerText: { fontSize: 15, color: '#0f172a', flex: 1 },
+  chevron:            { fontSize: 20, color: '#94a3b8' },
+  btn:         { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 24 },
+  btnDisabled: { opacity: 0.6 },
+  btnText:     { color: '#fff', fontWeight: '700', fontSize: 15 },
+  footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: 24, marginBottom: 16 },
+  footerText: { fontSize: 13, color: '#64748b' },
+  footerLink: { fontSize: 13, color: '#16a34a', fontWeight: '600' },
+  pickerModal:  { flex: 1, backgroundColor: '#f8fafc' },
+  pickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 56, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  pickerTitle:  { fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  pickerClose:  { fontSize: 20, color: '#64748b', padding: 4 },
+  facilityRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: '#fff' },
+  facilityRowActive: { backgroundColor: '#f0fdf4' },
+  facilityName:      { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+  facilitySub:       { fontSize: 12, color: '#64748b', marginTop: 2 },
+  checkmark:         { fontSize: 18, color: '#16a34a', fontWeight: '700' },
+  empty:             { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
 });
-
-export default RegisterScreen;

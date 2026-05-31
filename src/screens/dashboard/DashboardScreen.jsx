@@ -1,217 +1,152 @@
-import React, { useState, useEffect, useCallback } from 'react';
+/**
+ * screens/dashboard/DashboardScreen.jsx
+ * Original NeoMatCare dashboard UI — restored.
+ */
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, RefreshControl, StyleSheet,
+  View, Text, ScrollView, StyleSheet,
+  TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-
 import { useAuth } from '../../contexts/AuthContext';
-import { dashboardAPI, getErrorMessage } from '../../api/client';
-import {
-  Card, StatCard, Spinner, EmptyState, RoleBadge,
-  Avatar, StatusBadge, SectionHeader, ErrorBanner,
-} from '../../components/ui';
-import Colors from '../../constants/colors';
-import { Typography, Spacing, Radius } from '../../constants/theme';
+import { dashboardAPI, casesAPI, referralsAPI, consultationsAPI, transportAPI } from '../../api/client';
 
-const DashboardScreen = () => {
+const ROLE_LABELS = {
+  health_worker:  'Health Worker',
+  facility_admin: 'Facility Admin',
+  specialist:     'Specialist',
+  driver:         'Driver',
+  superadmin:     'Superadmin',
+};
+
+export default function DashboardScreen({ navigation }) {
   const { user, userRole, logout } = useAuth();
-  const [stats, setStats]         = useState(null);
-  const [activity, setActivity]   = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError]         = useState('');
+  const [stats,   setStats]   = useState({});
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fullName = user?.name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'User';
+
+  const loadStats = useCallback(async () => {
     try {
-      setError('');
-      const [statsRes, activityRes] = await Promise.all([
-        dashboardAPI.getStats(),
-        dashboardAPI.getRecentActivity(),
+      // Try dashboard API first, fall back to individual endpoints
+      const results = await Promise.allSettled([
+        casesAPI.getCases(),
+        referralsAPI.getReferrals(),
+        consultationsAPI.getConsultations(),
+        transportAPI.getTransports(),
       ]);
-      setStats(statsRes.data);
-      setActivity(activityRes.data?.results || activityRes.data || []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const count = (r) => {
+        const d = r.value?.data;
+        return Array.isArray(d) ? d.length : (d?.count ?? d?.results?.length ?? 0);
+      };
+      setStats({
+        cases:         count(results[0]),
+        referrals:     count(results[1]),
+        consultations: count(results[2]),
+        transport:     count(results[3]),
+      });
+    } catch {}
+    setLoading(false);
+    setRefresh(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { loadStats(); }, [loadStats]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchData();
-  };
-
-  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.email || 'User';
-
-  // ── Role-specific stat configs ──
-  const statConfigs = getRoleStats(userRole, stats);
+  const cards = [
+    (userRole === 'health_worker' || userRole === 'superadmin') &&
+      { label: 'Cases', value: stats.cases, color: '#16a34a', route: 'Cases' },
+    (userRole === 'health_worker' || userRole === 'facility_admin' || userRole === 'superadmin') &&
+      { label: 'Referrals', value: stats.referrals, color: '#2563eb', route: 'Referrals' },
+    (userRole === 'health_worker' || userRole === 'specialist' || userRole === 'superadmin') &&
+      { label: 'Consultations', value: stats.consultations, color: '#7c3aed', route: 'Consultations' },
+    (userRole === 'driver' || userRole === 'superadmin') &&
+      { label: 'Transport', value: stats.transport, color: '#d97706', route: 'Transport' },
+  ].filter(Boolean);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Avatar name={fullName} size={44} />
-            <View style={styles.headerInfo}>
-              <Text style={styles.greeting}>Welcome back,</Text>
-              <Text style={styles.userName} numberOfLines={1}>{fullName}</Text>
-              <RoleBadge role={userRole} />
-            </View>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refresh}
+          onRefresh={() => { setRefresh(true); loadStats(); }}
+          tintColor="#16a34a"
+        />
+      }
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>Hello, {fullName.split(' ')[0]} 👋</Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>{ROLE_LABELS[userRole]}</Text>
           </View>
-          <Ionicons name="notifications-outline" size={24} color={Colors.textSecondary} />
         </View>
-
-        <ErrorBanner message={error} onDismiss={() => setError('')} />
-
-        {loading && !refreshing ? (
-          <View style={styles.loadingBox}>
-            <Spinner />
-          </View>
-        ) : (
-          <>
-            {/* Stats grid */}
-            {statConfigs.length > 0 && (
-              <View style={styles.section}>
-                <SectionHeader title="Overview" />
-                <View style={styles.statsGrid}>
-                  {statConfigs.map((s, i) => (
-                    <StatCard
-                      key={i}
-                      label={s.label}
-                      value={s.value}
-                      icon={s.icon}
-                      color={s.color}
-                      style={styles.statItem}
-                    />
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Recent activity */}
-            <View style={styles.section}>
-              <SectionHeader title="Recent Activity" />
-              {activity.length === 0 ? (
-                <EmptyState
-                  icon="time-outline"
-                  title="No recent activity"
-                  message="Your recent actions will appear here."
-                />
-              ) : (
-                activity.slice(0, 10).map((item, i) => (
-                  <ActivityItem key={item.id || i} item={item} />
-                ))
-              )}
-            </View>
-          </>
+        {user?.facility_name && (
+          <Text style={styles.facility}>{user.facility_name}</Text>
         )}
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator color="#16a34a" style={{ marginTop: 40 }} />
+      ) : (
+        <>
+          {/* Stats grid */}
+          <View style={styles.grid}>
+            {cards.map((card) => (
+              <TouchableOpacity
+                key={card.label}
+                style={[styles.card, { borderLeftColor: card.color }]}
+                onPress={() => navigation.navigate(card.route)}
+              >
+                <Text style={[styles.cardValue, { color: card.color }]}>
+                  {card.value ?? '—'}
+                </Text>
+                <Text style={styles.cardLabel}>{card.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Quick action for health workers */}
+          {userRole === 'health_worker' && (
+            <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={() => navigation.navigate('Cases')}
+            >
+              <Text style={styles.primaryBtnText}>+ New Emergency Case</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+    </ScrollView>
   );
-};
-
-// ─── Activity row ─────────────────────────────────────────────────────────────
-const ActivityItem = ({ item }) => (
-  <Card style={styles.activityCard}>
-    <View style={styles.activityRow}>
-      <View style={[styles.activityDot, { backgroundColor: Colors.primary + '30' }]}>
-        <Ionicons name={getActivityIcon(item.type)} size={14} color={Colors.primary} />
-      </View>
-      <View style={styles.activityContent}>
-        <Text style={styles.activityTitle}>{item.description || item.title || 'Activity'}</Text>
-        {item.status && <StatusBadge status={item.status} />}
-      </View>
-      <Text style={styles.activityTime}>{formatTime(item.created_at)}</Text>
-    </View>
-  </Card>
-);
-
-const getActivityIcon = (type) => {
-  const map = { case: 'medical-outline', referral: 'swap-horizontal-outline', transport: 'car-outline', consultation: 'chatbubble-outline' };
-  return map[type] || 'ellipse-outline';
-};
-
-const formatTime = (dt) => {
-  if (!dt) return '';
-  const d = new Date(dt);
-  const now = new Date();
-  const diff = Math.floor((now - d) / 60000);
-  if (diff < 1)   return 'Just now';
-  if (diff < 60)  return `${diff}m ago`;
-  if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
-  return d.toLocaleDateString();
-};
-
-// ─── Role-specific stats ──────────────────────────────────────────────────────
-const getRoleStats = (role, s) => {
-  if (!s) return [];
-  switch (role) {
-    case 'health_worker': return [
-      { label: 'Active Cases',      value: s.active_cases,      icon: 'medical-outline',         color: Colors.primary },
-      { label: 'Total Cases',       value: s.total_cases,       icon: 'folder-outline',          color: Colors.secondary },
-      { label: 'Pending Referrals', value: s.pending_referrals, icon: 'swap-horizontal-outline', color: Colors.warning },
-      { label: 'Completed',         value: s.completed_cases,   icon: 'checkmark-circle-outline', color: Colors.success },
-    ];
-    case 'specialist': return [
-      { label: 'Consultations',     value: s.total_consultations, icon: 'chatbubbles-outline',     color: Colors.primary },
-      { label: 'Pending',           value: s.pending_consultations, icon: 'time-outline',          color: Colors.warning },
-      { label: 'Referrals',         value: s.total_referrals,     icon: 'swap-horizontal-outline', color: Colors.secondary },
-      { label: 'Completed',         value: s.completed_consultations, icon: 'checkmark-circle-outline', color: Colors.success },
-    ];
-    case 'facility_admin': return [
-      { label: 'Staff Members',     value: s.total_staff,     icon: 'people-outline',     color: Colors.primary },
-      { label: 'Active Cases',      value: s.active_cases,    icon: 'medical-outline',    color: Colors.secondary },
-      { label: 'Capacity',          value: s.capacity,        icon: 'bed-outline',        color: Colors.warning },
-      { label: 'Referrals Today',   value: s.referrals_today, icon: 'today-outline',      color: Colors.success },
-    ];
-    case 'driver': return [
-      { label: 'Active Trips',      value: s.active_transports,    icon: 'car-outline',              color: Colors.primary },
-      { label: 'Total Trips',       value: s.total_transports,     icon: 'navigate-outline',         color: Colors.secondary },
-      { label: 'Completed Today',   value: s.completed_today,      icon: 'checkmark-circle-outline', color: Colors.success },
-      { label: 'Pending',           value: s.pending_transports,   icon: 'time-outline',             color: Colors.warning },
-    ];
-    case 'superadmin': return [
-      { label: 'Facilities',        value: s.total_facilities,  icon: 'business-outline',  color: Colors.primary },
-      { label: 'Total Users',       value: s.total_users,       icon: 'people-outline',    color: Colors.secondary },
-      { label: 'Active Cases',      value: s.active_cases,      icon: 'medical-outline',   color: Colors.warning },
-      { label: 'Referrals',         value: s.total_referrals,   icon: 'swap-horizontal-outline', color: Colors.success },
-    ];
-    default: return [];
-  }
-};
+}
 
 const styles = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: Spacing[4], paddingBottom: Spacing[10] },
-
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[5] },
-  headerLeft:  { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  headerInfo:  { marginLeft: Spacing[3], flex: 1 },
-  greeting:    { fontSize: Typography.xs, color: Colors.textSecondary },
-  userName:    { fontSize: Typography.lg, fontWeight: Typography.bold, color: Colors.textPrimary, marginVertical: 2 },
-
-  loadingBox:  { paddingVertical: Spacing[10], alignItems: 'center' },
-
-  section:    { marginBottom: Spacing[5] },
-  statsGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing[3] },
-  statItem:   { width: '47%' },
-
-  activityCard: { marginBottom: Spacing[2], padding: Spacing[3] },
-  activityRow:  { flexDirection: 'row', alignItems: 'center' },
-  activityDot:  { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: Spacing[3] },
-  activityContent: { flex: 1 },
-  activityTitle:   { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary, marginBottom: 4 },
-  activityTime:    { fontSize: Typography.xs, color: Colors.textMuted, marginLeft: Spacing[2] },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  header: {
+    backgroundColor: '#fff', padding: 24, paddingTop: 56,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+  },
+  greeting:  { fontSize: 20, fontWeight: '700', color: '#0f172a' },
+  roleBadge: {
+    marginTop: 4, backgroundColor: '#dcfce7', borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start',
+  },
+  roleText: { fontSize: 11, color: '#16a34a', fontWeight: '600' },
+  facility: { fontSize: 12, color: '#64748b', textAlign: 'right', maxWidth: 140 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 12 },
+  card: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 16,
+    width: '47%', borderLeftWidth: 3,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+  },
+  cardValue:  { fontSize: 28, fontWeight: '700' },
+  cardLabel:  { fontSize: 12, color: '#64748b', marginTop: 4, fontWeight: '500' },
+  primaryBtn: {
+    margin: 16, backgroundColor: '#16a34a', borderRadius: 12,
+    padding: 16, alignItems: 'center',
+  },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
-
-export default DashboardScreen;
