@@ -55,7 +55,7 @@ const MessageBubble = React.memo(({ msg, accentColor }) => {
     <View style={[styles.bubbleRow, isUser ? styles.bubbleRowUser : styles.bubbleRowAI]}>
       {!isUser && (
         <View style={[styles.avatar, { backgroundColor: accentColor }]}>
-          <Ionicons name="sparkles" size={12} color="#fff" />
+          <Ionicons name="heart" size={12} color="#fff" />
         </View>
       )}
       <View style={[
@@ -175,10 +175,11 @@ export default function AssistantWidget({ context = {} }) {
       >
         {/* Panel header */}
         <View style={[styles.panelHeader, { backgroundColor: config.color }]}>
-          <Ionicons name="sparkles" size={16} color="#fff" style={{ marginRight: 8 }} />
+          <View style={[styles.panelHeaderIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Ionicons name="heart" size={16} color="#fff" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.panelTitle}>{config.label}</Text>
-            <Text style={styles.panelSubtitle}>Powered by Claude AI</Text>
           </View>
           <TouchableOpacity onPress={clearChat} style={styles.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="refresh" size={16} color="rgba(255,255,255,0.8)" />
@@ -204,7 +205,7 @@ export default function AssistantWidget({ context = {} }) {
             loading ? (
               <View style={styles.typingRow}>
                 <View style={[styles.avatar, { backgroundColor: config.color }]}>
-                  <Ionicons name="sparkles" size={12} color="#fff" />
+                  <Ionicons name="heart" size={12} color="#fff" />
                 </View>
                 <View style={styles.typingBubble}>
                   <ActivityIndicator size="small" color={config.color} />
@@ -312,10 +313,17 @@ const styles = StyleSheet.create({
     alignItems:     'center',
     paddingHorizontal: 16,
     paddingVertical:   12,
+    gap: 10,
+  },
+  panelHeaderIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   panelTitle:    { color: '#fff', fontSize: 13, fontWeight: '700' },
-  panelSubtitle: { color: 'rgba(255,255,255,0.65)', fontSize: 10, marginTop: 1 },
-  headerBtn:     { padding: 4, marginLeft: 8 },
+  headerBtn:     { padding: 4, marginLeft: 4 },
 
   messageList:        { flex: 1 },
   messageListContent: { padding: 12, paddingBottom: 4 },
