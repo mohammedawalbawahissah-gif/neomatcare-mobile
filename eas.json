@@ -16,14 +16,14 @@
       "channel": "preview",
       "android": { "buildType": "apk" },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE_WITH_YOUR_BACKEND_URL"
+        "EXPO_PUBLIC_API_URL": "https://neomatcare-production.up.railway.app"
       }
     },
     "production": {
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE_WITH_YOUR_BACKEND_URL"
+        "EXPO_PUBLIC_API_URL": "https://neomatcare-production.up.railway.app"
       }
     }
   },
