@@ -1,779 +1,745 @@
-/**
- * screens/health-worker/CaseDetailScreen.jsx
- * Original NeoMatCare case detail UI — restored with new CaseDetailScreen logic.
- * All modals (vitals, notes, referral+transport) preserved from revamp.
- */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import {
-  View, Text, ScrollView, StyleSheet,
-  ActivityIndicator, TouchableOpacity, Alert,
-  Modal, TextInput, RefreshControl,
-} from 'react-native';
-import { casesAPI, referralsAPI, facilitiesAPI, transportAPI, getErrorMessage } from '../../api/client';
+  casesApi, referralsApi, facilitiesApi, transportApi, consultationsApi, getErrorMessage,
+} from '../../api/client';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card,
+} from '../../components/ui';
+import { DangerSignPicker, DangerSignList } from '../../components/ui/dangerSigns';
+import TriageAIPanel from '../../components/ai/TriageAIPanel';
+import HandoverBriefPanel from '../../components/ai/HandoverBriefPanel';
+import TransportRecommendPanel from '../../components/ai/TransportRecommendPanel';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
-const ALL_DANGER_SIGNS = [
-  { code: 'PPH', label: 'PPH' }, { code: 'APH', label: 'APH' },
-  { code: 'RUPTURED_UTERUS', label: 'Ruptured Uterus' },
-  { code: 'ECLAMPSIA', label: 'Eclampsia' },
-  { code: 'SEVERE_PRE_ECLAMPSIA', label: 'Severe Pre-Eclampsia' },
-  { code: 'OBSTRUCTED_LABOUR', label: 'Obstructed Labour' },
-  { code: 'CORD_PROLAPSE', label: 'Cord Prolapse' },
-  { code: 'PUERPERAL_SEPSIS', label: 'Puerperal Sepsis' },
-  { code: 'CHORIOAMNIONITIS', label: 'Chorioamnionitis' },
-  { code: 'NEONATAL_DISTRESS', label: 'Neonatal Distress' },
-  { code: 'PRETERM_LABOUR', label: 'Preterm Labour' },
-  { code: 'NEONATAL_SEPSIS', label: 'Neonatal Sepsis' },
-  { code: 'SEVERE_ANAEMIA', label: 'Severe Anaemia' },
-  { code: 'MALPRESENTATION', label: 'Malpresentation' },
-];
-
-const VEHICLE_EMOJI = { AMBULANCE: '🚑', MOTORCYCLE: '🏍️', CAR: '🚗', VAN: '🚐' };
-
-const formatDate = (dt) => {
-  if (!dt) return '—';
-  return new Date(dt).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+const VALID_TRANSITIONS = {
+  DRAFT: ['PENDING', 'CANCELLED'],
+  PENDING: ['ACCEPTED', 'CANCELLED'],
+  ACCEPTED: ['IN_TRANSIT', 'CANCELLED'],
+  IN_TRANSIT: ['RECEIVED', 'FAILED'],
+  RECEIVED: ['COMPLETED'],
+  COMPLETED: [], CANCELLED: [], FAILED: [],
 };
+const STATUS_VARIANT = {
+  DRAFT: 'default', PENDING: 'warning', ACCEPTED: 'info', IN_TRANSIT: 'info',
+  RECEIVED: 'success', COMPLETED: 'success', CANCELLED: 'danger', FAILED: 'danger',
+};
+const OUTCOME_COLOR = { survived: Colors.successDark, died: Colors.dangerDark, unknown: Colors.gray400 };
+const VITAL_LABELS = {
+  systolic_bp: 'Systolic BP', diastolic_bp: 'Diastolic BP', heart_rate: 'Heart Rate',
+  respiratory_rate: 'Resp. Rate', temperature: 'Temp', spo2: 'SpO2',
+};
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function CaseDetailScreen({ route, navigation }) {
-  const { caseId } = route.params;
-  const [caseData,   setCaseData]   = useState(null);
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const { id } = route.params;
+  const { isHealthWorker, isFacilityAdmin, isSuperadmin } = useAuth();
+  const canManage = isHealthWorker || isFacilityAdmin || isSuperadmin;
 
-  const [showVitalModal,    setShowVitalModal]    = useState(false);
-  const [showNoteModal,     setShowNoteModal]     = useState(false);
-  const [showReferralModal, setShowReferralModal] = useState(false);
+  const [c, setCase]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
+  const [editModal, setEditModal] = useState(false);
+  const [noteText, setNoteText]   = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+  const [referModal, setReferModal] = useState(false);
+  const [transportModal, setTransportModal] = useState(false);
+  const [consultModal, setConsultModal] = useState(false);
+  const [referralRefreshKey, setReferralRefreshKey] = useState(0);
 
-  const fetchCase = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const res = await casesAPI.getCase(caseId);
-      setCaseData(res.data);
-    } catch {}
-    setLoading(false);
-    setRefreshing(false);
-  }, [caseId]);
+      const { data } = await casesApi.detail(id);
+      setCase(data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally { setLoading(false); }
+  }, [id]);
 
-  useEffect(() => { fetchCase(); }, [fetchCase]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (loading) return <ActivityIndicator style={styles.loader} color="#16a34a" />;
-  if (!caseData) return <Text style={styles.error}>Case not found.</Text>;
+  const handleAddNote = async () => {
+    if (!noteText.trim()) return;
+    setAddingNote(true);
+    try {
+      await casesApi.triageNote(id, noteText.trim());
+      setNoteText('');
+      load();
+    } catch { /* keep the note text so the user can retry */ }
+    finally { setAddingNote(false); }
+  };
 
-  const p      = caseData.patient || {};
-  const vs     = caseData.vital_signs || {};
-  const signs  = caseData.danger_signs || [];
-  const name   = p.patient_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown Patient';
+  if (loading) return <Spinner fullScreen />;
+  if (error || !c) {
+    return (
+      <View style={styles.container}>
+        <Header navigation={navigation} title="Case" />
+        <ErrorBanner message={error || 'Case not found.'} />
+      </View>
+    );
+  }
+
+  const vitals = Object.entries(c.vital_signs || {}).filter(([, v]) => v !== null && v !== '');
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchCase(); }} tintColor="#16a34a" />}
-    >
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+    <View style={styles.container}>
+      <Header navigation={navigation} title={c.patient?.patient_name || 'Emergency Case'} onEdit={canManage ? () => setEditModal(true) : null} />
 
-      <Text style={styles.title}>{name}</Text>
-      <Text style={styles.caseId}>Case #{String(caseData.id).slice(0, 8).toUpperCase()}</Text>
-
-      {/* Patient */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Patient</Text>
-        <Row label="Name"     value={p.patient_name || name} />
-        <Row label="Age"      value={p.age ? `${p.age} years` : null} />
-        <Row label="Phone"    value={p.patient_phone_number} />
-        <Row label="Blood"    value={p.blood_group} />
-        <Row label="ANC Visits" value={p.anc_visits != null ? String(p.anc_visits) : null} />
-        <Row label="Facility" value={caseData.referring_facility_name} />
-        <Row label="Recorded" value={formatDate(caseData.created_at)} />
-      </View>
-
-      {/* Obstetrics */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Obstetric History</Text>
-        <Row label="Gestational Age" value={caseData.gestational_age_weeks ? `${caseData.gestational_age_weeks} weeks` : null} />
-        <Row label="Gravida"         value={caseData.gravida != null ? String(caseData.gravida) : null} />
-        <Row label="Parity"          value={caseData.parity  != null ? String(caseData.parity)  : null} />
-        <Row label="Membranes"       value={caseData.membranes_status} />
-        <Row label="Fetal HR"        value={caseData.fetal_heart_rate ? `${caseData.fetal_heart_rate} bpm` : null} />
-      </View>
-
-      {/* Clinical */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Clinical Presentation</Text>
-        <Text style={styles.notes}>{caseData.presenting_complaint || '—'}</Text>
-        {signs.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Danger Signs</Text>
-            <View style={styles.signsRow}>
-              {signs.map(code => {
-                const entry = ALL_DANGER_SIGNS.find(d => d.code === code);
-                return (
-                  <View key={code} style={styles.dangerBadge}>
-                    <Text style={styles.dangerBadgeText}>{entry?.label || code.replace(/_/g, ' ')}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </>
-        )}
-      </View>
-
-      {/* Vitals */}
-      <View style={styles.section}>
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Vital Signs</Text>
-          <TouchableOpacity onPress={() => setShowVitalModal(true)}>
-            <Text style={styles.sectionAction}>Update</Text>
-          </TouchableOpacity>
-        </View>
-        {Object.values(vs).some(v => v !== '' && v != null) ? (
-          <View style={styles.vitalGrid}>
-            <VitalChip label="Systolic BP"  value={vs.systolic_bp}      unit="mmHg" />
-            <VitalChip label="Diastolic BP" value={vs.diastolic_bp}     unit="mmHg" />
-            <VitalChip label="Heart Rate"   value={vs.heart_rate}       unit="bpm" />
-            <VitalChip label="Resp. Rate"   value={vs.respiratory_rate} unit="/min" />
-            <VitalChip label="Temperature"  value={vs.temperature}      unit="°C" />
-            <VitalChip label="SpO₂"         value={vs.spo2}             unit="%" />
+      <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10], gap: Spacing[3] }}>
+        {canManage && (
+          <View style={styles.actionRow}>
+            <ActionBtn icon="swap-horizontal" label="Refer" onPress={() => setReferModal(true)} />
+            <ActionBtn icon="car-outline" label="Transport" onPress={() => setTransportModal(true)} />
+            <ActionBtn icon="videocam-outline" label="Consult" onPress={() => setConsultModal(true)} />
           </View>
-        ) : (
-          <Text style={styles.emptyMuted}>No vitals recorded yet.</Text>
         )}
-      </View>
 
-      {/* Clinical Notes */}
-      <View style={styles.section}>
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Clinical Notes</Text>
-          <TouchableOpacity onPress={() => setShowNoteModal(true)}>
-            <Text style={styles.sectionAction}>Add</Text>
-          </TouchableOpacity>
-        </View>
-        {caseData.triage_notes?.length > 0 ? (
-          caseData.triage_notes.map((n, i) => (
-            <View key={n.id || i} style={styles.noteItem}>
-              <View style={styles.noteHeader}>
-                <Text style={styles.noteAuthor}>{n.created_by_name || 'Unknown'}</Text>
-                <Text style={styles.noteDate}>{formatDate(n.created_at)}</Text>
-              </View>
-              <Text style={styles.noteContent}>{n.note}</Text>
+        <Card>
+          <Text style={styles.cardLabel}>Patient</Text>
+          <Text style={styles.patientName}>{c.patient?.patient_name || 'Unnamed patient'}</Text>
+          <Text style={styles.kvKey}>ID: {c.patient?.hospital_id || '—'} · Age {c.patient?.age} · {c.patient?.town || '—'}</Text>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Blood Group</Text><Text style={styles.kvVal}>{c.patient?.blood_group || '—'}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>ANC Visits</Text><Text style={styles.kvVal}>{c.patient?.anc_visits ?? '—'}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Gestational Age</Text><Text style={styles.kvVal}>{c.gestational_age_weeks ? `${c.gestational_age_weeks} wks` : '—'}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Gravida / Parity</Text><Text style={styles.kvVal}>{c.gravida ?? '—'} / {c.parity ?? '—'}</Text></View>
+        </Card>
+
+        <Card>
+          <Text style={styles.cardLabel}>Presenting Complaint</Text>
+          <Text style={styles.notesText}>{c.presenting_complaint}</Text>
+        </Card>
+
+        <Card>
+          <Text style={styles.cardLabel}>Danger Signs</Text>
+          <DangerSignList signs={c.danger_signs} />
+        </Card>
+
+        {vitals.length > 0 && (
+          <Card>
+            <Text style={styles.cardLabel}>Vital Signs</Text>
+            <View style={styles.vitalsGrid}>
+              {vitals.map(([k, v]) => (
+                <View key={k} style={styles.vitalBox}>
+                  <Text style={styles.vitalVal}>{v}</Text>
+                  <Text style={styles.vitalLabel}>{VITAL_LABELS[k] || k}</Text>
+                </View>
+              ))}
+              {!!c.fetal_heart_rate && (
+                <View style={styles.vitalBox}><Text style={styles.vitalVal}>{c.fetal_heart_rate}</Text><Text style={styles.vitalLabel}>Fetal HR</Text></View>
+              )}
             </View>
-          ))
-        ) : (
-          <Text style={styles.emptyMuted}>No clinical notes yet.</Text>
+          </Card>
         )}
-      </View>
 
-      {/* Referrals */}
-      {caseData.referrals?.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Referrals</Text>
-          {caseData.referrals.map((r, i) => (
-            <View key={r.id || i} style={styles.referralRow}>
-              <Text style={styles.referralFacility} numberOfLines={1}>
-                {r.referring_facility_name} → {r.receiving_facility_name}
-              </Text>
-              <View style={[styles.statusPill, { backgroundColor: STATUS_BG[r.status] || '#f1f5f9' }]}>
-                <Text style={[styles.statusPillText, { color: STATUS_TEXT[r.status] || '#64748b' }]}>{r.status}</Text>
-              </View>
+        <Card>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Membranes</Text><Text style={styles.kvVal}>{c.membranes_status}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Referring Facility</Text><Text style={styles.kvVal}>{c.referring_facility_name}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Created by</Text><Text style={styles.kvVal}>{c.created_by_name}</Text></View>
+          <View style={styles.kvRow}><Text style={styles.kvKey}>Created</Text><Text style={styles.kvVal}>{fmtDateTime(c.created_at)}</Text></View>
+          {!!c.obstetric_history && (
+            <>
+              <Text style={[styles.cardLabel, { marginTop: Spacing[3] }]}>Obstetric History</Text>
+              <Text style={styles.notesText}>{c.obstetric_history}</Text>
+            </>
+          )}
+        </Card>
+
+        {(c.maternal_outcome !== 'unknown' || c.neonatal_outcome !== 'unknown') && (
+          <Card>
+            <Text style={styles.cardLabel}>Case Outcome</Text>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>Maternal</Text><Text style={[styles.kvVal, { color: OUTCOME_COLOR[c.maternal_outcome] }]}>{c.maternal_outcome}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>Neonatal</Text><Text style={[styles.kvVal, { color: OUTCOME_COLOR[c.neonatal_outcome] }]}>{c.neonatal_outcome}</Text></View>
+            {!!c.outcome_notes && <Text style={styles.notesTextSm}>{c.outcome_notes}</Text>}
+          </Card>
+        )}
+
+        <ReferralSection caseId={id} canManage={canManage} refreshKey={referralRefreshKey} />
+
+        <Card>
+          <Text style={styles.cardLabel}>Triage Notes</Text>
+          {(c.triage_notes || []).length === 0 ? (
+            <Text style={styles.emptyText}>No triage notes yet.</Text>
+          ) : c.triage_notes.map((n) => (
+            <View key={n.id} style={styles.noteRow}>
+              <Text style={styles.noteText}>{n.note}</Text>
+              <Text style={styles.noteMeta}>{n.created_by_name} · {fmtDateTime(n.created_at)}</Text>
             </View>
           ))}
-        </View>
-      )}
-
-      {/* Actions */}
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.outlineBtn} onPress={() => setShowNoteModal(true)}>
-          <Text style={styles.outlineBtnText}>Add Clinical Note</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowReferralModal(true)}>
-          <Text style={styles.primaryBtnText}>Create Referral</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={{ height: 40 }} />
-
-      <AddVitalModal
-        visible={showVitalModal}
-        onClose={() => setShowVitalModal(false)}
-        caseId={caseId}
-        currentVitals={vs}
-        onSaved={fetchCase}
-      />
-      <AddNoteModal
-        visible={showNoteModal}
-        onClose={() => setShowNoteModal(false)}
-        caseId={caseId}
-        onSaved={fetchCase}
-      />
-      <CreateReferralModal
-        visible={showReferralModal}
-        onClose={() => setShowReferralModal(false)}
-        caseData={caseData}
-        onSaved={fetchCase}
-      />
-    </ScrollView>
-  );
-}
-
-const STATUS_BG   = { PENDING: '#fef3c7', ACCEPTED: '#dcfce7', IN_TRANSIT: '#dbeafe', COMPLETED: '#d1fae5', CANCELLED: '#fee2e2' };
-const STATUS_TEXT = { PENDING: '#d97706', ACCEPTED: '#16a34a', IN_TRANSIT: '#2563eb', COMPLETED: '#059669', CANCELLED: '#dc2626' };
-
-function Row({ label, value }) {
-  if (!value && value !== 0) return null;
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{String(value)}</Text>
-    </View>
-  );
-}
-
-function VitalChip({ label, value, unit }) {
-  if (value === '' || value == null) return null;
-  return (
-    <View style={styles.vitalChip}>
-      <Text style={styles.vitalLabel}>{label}</Text>
-      <Text style={styles.vitalValue}>{value} <Text style={styles.vitalUnit}>{unit}</Text></Text>
-    </View>
-  );
-}
-
-// ── Add Vitals Modal ───────────────────────────────────────────────────────────
-function AddVitalModal({ visible, onClose, caseId, currentVitals, onSaved }) {
-  const [form, setForm] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (visible) {
-      setForm({
-        systolic_bp:      String(currentVitals?.systolic_bp      ?? ''),
-        diastolic_bp:     String(currentVitals?.diastolic_bp     ?? ''),
-        heart_rate:       String(currentVitals?.heart_rate       ?? ''),
-        respiratory_rate: String(currentVitals?.respiratory_rate ?? ''),
-        temperature:      String(currentVitals?.temperature      ?? ''),
-        spo2:             String(currentVitals?.spo2             ?? ''),
-      });
-      setError('');
-    }
-  }, [visible, currentVitals]);
-
-  const set = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
-
-  const handleSave = async () => {
-    setLoading(true);
-    try {
-      const payload = {};
-      Object.entries(form).forEach(([k, v]) => { if (v !== '') payload[k] = Number(v); });
-      await casesAPI.addVitalSigns(caseId, payload);
-      onSaved(); onClose();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <ScrollView style={styles.modal} keyboardShouldPersistTaps="handled">
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Update Vital Signs</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
-        </View>
-        {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
-        <View style={styles.halfRow}>
-          <View style={{ flex: 1 }}><MField label="Systolic BP (mmHg)"  value={form.systolic_bp}      onChange={set('systolic_bp')}      placeholder="e.g. 120" keyboard="numeric" /></View>
-          <View style={{ width: 12 }} />
-          <View style={{ flex: 1 }}><MField label="Diastolic BP (mmHg)" value={form.diastolic_bp}     onChange={set('diastolic_bp')}     placeholder="e.g. 80"  keyboard="numeric" /></View>
-        </View>
-        <View style={styles.halfRow}>
-          <View style={{ flex: 1 }}><MField label="Heart Rate (bpm)"    value={form.heart_rate}       onChange={set('heart_rate')}       placeholder="e.g. 88"  keyboard="numeric" /></View>
-          <View style={{ width: 12 }} />
-          <View style={{ flex: 1 }}><MField label="Resp. Rate (/min)"   value={form.respiratory_rate} onChange={set('respiratory_rate')} placeholder="e.g. 18"  keyboard="numeric" /></View>
-        </View>
-        <View style={styles.halfRow}>
-          <View style={{ flex: 1 }}><MField label="Temperature (°C)"    value={form.temperature}      onChange={set('temperature')}      placeholder="e.g. 37.2" keyboard="decimal-pad" /></View>
-          <View style={{ width: 12 }} />
-          <View style={{ flex: 1 }}><MField label="SpO₂ (%)"            value={form.spo2}             onChange={set('spo2')}             placeholder="e.g. 98"  keyboard="numeric" /></View>
-        </View>
-        <View style={styles.btnRow}>
-          <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}><Text style={styles.outlineBtnText}>Cancel</Text></TouchableOpacity>
-          <View style={{ width: 12 }} />
-          <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Save</Text>}
-          </TouchableOpacity>
-        </View>
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    </Modal>
-  );
-}
-
-// ── Add Note Modal ─────────────────────────────────────────────────────────────
-function AddNoteModal({ visible, onClose, caseId, onSaved }) {
-  const [note, setNote]   = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSave = async () => {
-    if (!note.trim()) return;
-    setLoading(true);
-    try {
-      await casesAPI.addNote(caseId, { note });
-      setNote(''); onSaved(); onClose();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Add Clinical Note</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
-        </View>
-        {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
-        <Text style={styles.mlabel}>Note</Text>
-        <TextInput
-          style={[styles.minput, { height: 120, textAlignVertical: 'top' }]}
-          value={note}
-          onChangeText={setNote}
-          placeholder="Enter clinical note…"
-          placeholderTextColor="#94a3b8"
-          multiline
-        />
-        <View style={styles.btnRow}>
-          <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}><Text style={styles.outlineBtnText}>Cancel</Text></TouchableOpacity>
-          <View style={{ width: 12 }} />
-          <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Save</Text>}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// ── Create Referral Modal (AI suggestion + manual + transport) ─────────────────
-function CreateReferralModal({ visible, onClose, caseData, onSaved }) {
-  const [step, setStep]               = useState('select_mode');
-  const [suggestion, setSuggestion]   = useState(null);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [suggestError, setSuggestError]     = useState('');
-  const [facilities, setFacilities]         = useState([]);
-  const [facilitiesLoading, setFacilitiesLoading] = useState(false);
-  const [facilitySearch, setFacilitySearch] = useState('');
-  const [selected, setSelected]             = useState(null);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [creating, setCreating]             = useState(false);
-  const [saveError, setSaveError]           = useState('');
-  const [createdReferral, setCreatedReferral] = useState(null);
-  const [vehicles, setVehicles]             = useState([]);
-  const [vehiclesLoading, setVehiclesLoading] = useState(false);
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [transportNotes, setTransportNotes] = useState('');
-  const [assigningTransport, setAssigningTransport] = useState(false);
-
-  useEffect(() => {
-    if (!visible) {
-      setStep('select_mode'); setSuggestion(null); setSuggestError(''); setSuggestLoading(false);
-      setFacilities([]); setFacilitySearch(''); setSelected(null);
-      setOverrideReason(''); setSaveError(''); setCreatedReferral(null);
-      setVehicles([]); setSelectedVehicle(null); setTransportNotes('');
-    }
-  }, [visible]);
-
-  const runSuggestion = async () => {
-    setSuggestLoading(true); setSuggestError('');
-    try {
-      const { data } = await referralsAPI.suggest(caseData.id);
-      setSuggestion(data);
-      if (data.recommended_facility)
-        setSelected({ id: data.recommended_facility.id, name: data.recommended_facility.name });
-    } catch {
-      setSuggestError('Could not fetch AI suggestions. Select manually.');
-    } finally { setSuggestLoading(false); setStep('suggestion'); }
-  };
-
-  const loadFacilities = async () => {
-    setStep('manual');
-    if (facilities.length > 0) return;
-    setFacilitiesLoading(true);
-    try {
-      const { data } = await facilitiesAPI.getFacilities();
-      setFacilities(Array.isArray(data) ? data : data.results || []);
-    } catch {}
-    finally { setFacilitiesLoading(false); }
-  };
-
-  const engineRecId = suggestion?.recommended_facility?.id;
-  const isOverride  = engineRecId && selected?.id && selected.id !== engineRecId;
-
-  const handleCreate = async () => {
-    if (!selected) return;
-    if (isOverride && !overrideReason.trim()) {
-      Alert.alert('Required', 'Please provide a reason for overriding the recommendation.'); return;
-    }
-    setCreating(true); setSaveError('');
-    try {
-      const { data } = await referralsAPI.createReferral({
-        emergency_case_id:     caseData.id,
-        receiving_facility_id: selected.id,
-        ...(suggestion?.engine_version && { engine_version: suggestion.engine_version }),
-        ...(engineRecId                && { engine_recommendation_id: engineRecId }),
-        ...(isOverride                 && { override_reason: overrideReason }),
-      });
-      setCreatedReferral(data);
-      setStep('transport');
-      setVehiclesLoading(true);
-      transportAPI.getAvailableVehicles()
-        .then(({ data: v }) => setVehicles(Array.isArray(v) ? v : v.results || []))
-        .catch(() => {})
-        .finally(() => setVehiclesLoading(false));
-    } catch (err) {
-      setSaveError(getErrorMessage(err));
-    } finally { setCreating(false); }
-  };
-
-  const handleAssignTransport = async () => {
-    if (!selectedVehicle || !createdReferral) return;
-    setAssigningTransport(true);
-    try {
-      await transportAPI.createTransportRequest({
-        vehicle: selectedVehicle.id, referral: createdReferral.id,
-        ...(transportNotes && { notes: transportNotes }),
-      });
-      onSaved(); onClose();
-    } catch { onSaved(); onClose(); }
-    finally { setAssigningTransport(false); }
-  };
-
-  const filteredFacilities = facilities.filter(f =>
-    f.name?.toLowerCase().includes(facilitySearch.toLowerCase())
-  );
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <ScrollView style={styles.modal} keyboardShouldPersistTaps="handled">
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Create Referral</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
-        </View>
-
-        {/* Mode selection */}
-        {step === 'select_mode' && (
-          <View style={{ gap: 12 }}>
-            <Text style={styles.modeHint}>How would you like to select the receiving facility?</Text>
-            <TouchableOpacity style={styles.modeCardPrimary} onPress={runSuggestion} disabled={suggestLoading}>
-              <View style={styles.modeIcon}>
-                {suggestLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ fontSize: 18 }}>🤖</Text>}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modeCardTitle}>AI Facility Suggestion</Text>
-                <Text style={styles.modeCardSub}>Engine ranks by danger signs, capacity & distance</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modeCardSecondary} onPress={loadFacilities} disabled={facilitiesLoading}>
-              <View style={styles.modeIconGray}>
-                {facilitiesLoading ? <ActivityIndicator color="#64748b" size="small" /> : <Text style={{ fontSize: 18 }}>📍</Text>}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modeCardTitleGray}>Manual Selection</Text>
-                <Text style={styles.modeCardSub}>Browse and pick any active facility</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* AI suggestion results */}
-        {step === 'suggestion' && (() => {
-          const all = [suggestion?.recommended_facility, ...(suggestion?.alternatives || [])].filter(Boolean);
-          return (
-            <View>
-              {suggestError ? <View style={styles.errorBanner}><Text style={styles.errorText}>{suggestError}</Text></View> : null}
-              {all.map((f, i) => {
-                const isSel = selected?.id === f.id;
-                return (
-                  <TouchableOpacity
-                    key={f.id}
-                    style={[styles.facilityCard, isSel && styles.facilityCardSelected]}
-                    onPress={() => setSelected({ id: f.id, name: f.name })}
-                  >
-                    <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}>
-                      <Text style={[styles.rankText, i === 0 && { color: '#fff' }]}>{i + 1}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={styles.facilityName}>{f.name}</Text>
-                        {i === 0 && <View style={styles.recBadge}><Text style={styles.recBadgeText}>Recommended</Text></View>}
-                      </View>
-                      <Text style={styles.facilityMeta}>
-                        {f.distance_km != null ? `${f.distance_km?.toFixed(1)} km` : ''}
-                        {f.level ? ` · Level ${f.level}` : ''}
-                      </Text>
-                    </View>
-                    {isSel && <Text style={{ fontSize: 18, color: '#16a34a' }}>✓</Text>}
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity style={styles.switchModeBtn} onPress={loadFacilities}>
-                <Text style={styles.switchModeBtnText}>Select manually instead →</Text>
-              </TouchableOpacity>
-              <ReferralConfirmFooter
-                selected={selected} isOverride={isOverride}
-                overrideReason={overrideReason} setOverrideReason={setOverrideReason}
-                saveError={saveError} setSaveError={setSaveError}
-                creating={creating} handleCreate={handleCreate} onClose={onClose}
-              />
-            </View>
-          );
-        })()}
-
-        {/* Manual picker */}
-        {step === 'manual' && (
-          <View>
-            <TextInput
-              style={styles.facilitySearch}
-              placeholder="Search facilities…"
-              value={facilitySearch}
-              onChangeText={setFacilitySearch}
-              placeholderTextColor="#94a3b8"
-            />
-            {facilitiesLoading ? (
-              <ActivityIndicator color="#16a34a" style={{ marginVertical: 20 }} />
-            ) : filteredFacilities.map(f => {
-              const isSel = selected?.id === f.id;
-              return (
-                <TouchableOpacity
-                  key={f.id}
-                  style={[styles.facilityCard, isSel && styles.facilityCardSelected]}
-                  onPress={() => setSelected({ id: f.id, name: f.name })}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.facilityName}>{f.name}</Text>
-                    {f.level && <Text style={styles.facilityMeta}>Level {f.level}</Text>}
-                  </View>
-                  {isSel && <Text style={{ fontSize: 18, color: '#16a34a' }}>✓</Text>}
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity style={styles.switchModeBtn} onPress={() => { setStep('select_mode'); setSuggestion(null); }}>
-              <Text style={styles.switchModeBtnText}>Try AI suggestion →</Text>
-            </TouchableOpacity>
-            <ReferralConfirmFooter
-              selected={selected} isOverride={isOverride}
-              overrideReason={overrideReason} setOverrideReason={setOverrideReason}
-              saveError={saveError} setSaveError={setSaveError}
-              creating={creating} handleCreate={handleCreate} onClose={onClose}
-            />
-          </View>
-        )}
-
-        {/* Transport step */}
-        {step === 'transport' && (
-          <View>
-            <View style={styles.successBanner}>
-              <Text style={styles.successTitle}>✓ Referral created</Text>
-              <Text style={styles.successSub}>To: {createdReferral?.receiving_facility_name}</Text>
-            </View>
-            <Text style={styles.mlabel}>Assign Transport (optional)</Text>
-            {vehiclesLoading ? (
-              <ActivityIndicator color="#16a34a" style={{ marginVertical: 20 }} />
-            ) : vehicles.length === 0 ? (
-              <View style={styles.noVehicles}>
-                <Text style={styles.noVehiclesText}>No vehicles available. Assign transport later from the referral.</Text>
-              </View>
-            ) : vehicles.map(v => {
-              const isSel = selectedVehicle?.id === v.id;
-              const emoji = VEHICLE_EMOJI[v.vehicle_type] || '🚑';
-              return (
-                <TouchableOpacity
-                  key={v.id}
-                  style={[styles.facilityCard, isSel && styles.facilityCardSelected]}
-                  onPress={() => setSelectedVehicle(isSel ? null : v)}
-                >
-                  <Text style={{ fontSize: 22, marginRight: 12 }}>{emoji}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.facilityName}>{v.registration}</Text>
-                    <Text style={styles.facilityMeta}>{v.make} {v.model} · {v.vehicle_type?.replace(/_/g, ' ')}{v.driver_name ? ` · ${v.driver_name}` : ''}</Text>
-                  </View>
-                  {isSel && <Text style={{ fontSize: 18, color: '#16a34a' }}>✓</Text>}
-                </TouchableOpacity>
-              );
-            })}
-            {selectedVehicle && (
-              <>
-                <Text style={styles.mlabel}>Transport Notes (optional)</Text>
-                <TextInput
-                  style={[styles.minput, { height: 60, textAlignVertical: 'top' }]}
-                  value={transportNotes}
-                  onChangeText={setTransportNotes}
-                  placeholder="Special instructions…"
-                  placeholderTextColor="#94a3b8"
-                  multiline
+          {canManage && (
+            <View style={{ marginTop: Spacing[3], gap: Spacing[2] }}>
+              {noteText.trim().length > 20 && (
+                <TriageAIPanel
+                  note={noteText}
+                  caseId={id}
+                  onApply={({ danger_signs, presenting_complaint_suggestion }) => {
+                    setEditModal(true);
+                    // EditCaseModal seeds its own state from `c` on open; the
+                    // AI's suggested fields are shown in the panel above for
+                    // the user to copy in manually via the edit form.
+                  }}
                 />
-              </>
-            )}
-            <View style={[styles.btnRow, { marginTop: 20 }]}>
-              <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={() => { onSaved(); onClose(); }}>
-                <Text style={styles.outlineBtnText}>Skip for now</Text>
-              </TouchableOpacity>
-              <View style={{ width: 12 }} />
-              <TouchableOpacity
-                style={[styles.primaryBtn, { flex: 1 }, (!selectedVehicle || assigningTransport) && { opacity: 0.6 }]}
-                onPress={handleAssignTransport}
-                disabled={!selectedVehicle || assigningTransport}
-              >
-                {assigningTransport ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Assign & Finish</Text>}
-              </TouchableOpacity>
+              )}
+              <Input value={noteText} onChangeText={setNoteText} placeholder="Add a triage note…" multiline numberOfLines={2} />
+              <Button title="Add Note" size="sm" onPress={handleAddNote} loading={addingNote} disabled={!noteText.trim()} />
             </View>
-          </View>
-        )}
+          )}
+        </Card>
 
-        <View style={{ height: 40 }} />
+        {canManage && <HandoverBriefPanel caseId={id} />}
       </ScrollView>
-    </Modal>
-  );
-}
 
-function ReferralConfirmFooter({ selected, isOverride, overrideReason, setOverrideReason, saveError, setSaveError, creating, handleCreate, onClose }) {
-  return (
-    <View style={styles.confirmFooter}>
-      {selected && (
-        <View style={styles.selectedFacilityBox}>
-          <Text style={styles.selectedFacilityLabel}>Selected facility</Text>
-          <Text style={styles.selectedFacilityName}>{selected.name}</Text>
-          {isOverride && <Text style={styles.overrideWarning}>⚠ Overriding recommendation — reason required</Text>}
-        </View>
-      )}
-      {isOverride && (
-        <>
-          <Text style={styles.mlabel}>Override Reason *</Text>
-          <TextInput
-            style={[styles.minput, { height: 60, textAlignVertical: 'top' }]}
-            value={overrideReason}
-            onChangeText={setOverrideReason}
-            placeholder="Explain why you're overriding…"
-            placeholderTextColor="#94a3b8"
-            multiline
-          />
-        </>
-      )}
-      {saveError ? <View style={styles.errorBanner}><Text style={styles.errorText}>{saveError}</Text></View> : null}
-      <View style={styles.btnRow}>
-        <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}>
-          <Text style={styles.outlineBtnText}>Cancel</Text>
-        </TouchableOpacity>
-        <View style={{ width: 12 }} />
-        <TouchableOpacity
-          style={[styles.primaryBtn, { flex: 1 }, (!selected || creating) && { opacity: 0.6 }]}
-          onPress={handleCreate}
-          disabled={!selected || creating}
-        >
-          {creating ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Create Referral</Text>}
-        </TouchableOpacity>
-      </View>
+      <EditCaseModal visible={editModal} onClose={() => setEditModal(false)} caseData={c} onSaved={() => { setEditModal(false); load(); }} />
+      <ReferralCreateModal visible={referModal} onClose={() => setReferModal(false)} caseData={c} onSaved={() => { setReferModal(false); setReferralRefreshKey((k) => k + 1); }} />
+      <TransportRequestModal visible={transportModal} onClose={() => setTransportModal(false)} onSaved={() => setTransportModal(false)} caseId={id} />
+      <ConsultationRequestModal visible={consultModal} onClose={() => setConsultModal(false)} onSaved={() => setConsultModal(false)} />
     </View>
   );
 }
 
-function MField({ label, value, onChange, placeholder, keyboard }) {
+function Header({ navigation, title, onEdit }) {
+  return (
+    <View style={styles.header}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+      {onEdit ? (
+        <TouchableOpacity onPress={onEdit} style={styles.backBtn}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>
+      ) : <View style={{ width: 36 }} />}
+    </View>
+  );
+}
+
+function ActionBtn({ icon, label, onPress }) {
+  return (
+    <TouchableOpacity style={styles.actionBtn} onPress={onPress}>
+      <Ionicons name={icon} size={18} color={Colors.primary} />
+      <Text style={styles.actionBtnText}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Referral section — resolves the case's referral via list+detail lookup ──
+// (ReferralListSerializer doesn't expose emergency_case_id, only
+// ReferralDetailSerializer does, so we fetch details for candidates.)
+function ReferralSection({ caseId, canManage, refreshKey }) {
+  const [referral, setReferral] = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [statusModal, setStatusModal] = useState(false);
+
+  const fetchReferral = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await referralsApi.list();
+      const list = Array.isArray(data) ? data : (data.results || []);
+      for (const r of list) {
+        const { data: detail } = await referralsApi.detail(r.id);
+        if (detail.emergency_case_id === caseId) { setReferral(detail); setLoading(false); return; }
+      }
+      setReferral(null);
+    } catch { setReferral(null); }
+    finally { setLoading(false); }
+  }, [caseId]);
+
+  useFocusEffect(useCallback(() => { fetchReferral(); }, [fetchReferral]));
+  React.useEffect(() => { if (refreshKey) fetchReferral(); }, [refreshKey]);
+
+  if (loading) return <Card><Text style={styles.emptyText}>Loading referral…</Text></Card>;
+
+  if (!referral) {
+    return (
+      <Card>
+        <Text style={styles.cardLabel}>Referral</Text>
+        <Text style={styles.emptyText}>No referral created yet. Use the Refer action above.</Text>
+      </Card>
+    );
+  }
+
+  const validNext = VALID_TRANSITIONS[referral.status] || [];
+  const isTerminal = validNext.length === 0;
+
   return (
     <>
-      <Text style={styles.mlabel}>{label}</Text>
-      <TextInput
-        style={styles.minput}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-        keyboardType={keyboard || 'default'}
-        autoCapitalize="none"
+      <Card>
+        <View style={styles.refHeaderRow}>
+          <Text style={styles.cardLabel}>Referral</Text>
+          <Badge label={referral.status.replace(/_/g, ' ')} variant={STATUS_VARIANT[referral.status]} />
+        </View>
+        <View style={styles.refRoute}>
+          <Text style={styles.refFacility} numberOfLines={1}>{referral.referring_facility_name}</Text>
+          <Ionicons name="chevron-forward" size={14} color={Colors.gray400} />
+          <Text style={styles.refFacility} numberOfLines={1}>{referral.receiving_facility_name}</Text>
+        </View>
+        {(referral.maternal_outcome !== 'unknown' || referral.neonatal_outcome !== 'unknown') && (
+          <View style={styles.refOutcomeRow}>
+            <Text style={styles.kvKey}>Maternal: <Text style={styles.kvVal}>{referral.maternal_outcome}</Text></Text>
+            <Text style={styles.kvKey}>Neonatal: <Text style={styles.kvVal}>{referral.neonatal_outcome}</Text></Text>
+          </View>
+        )}
+        {canManage && !isTerminal && (
+          <Button title="Update Status" size="sm" variant="outline" icon="refresh" onPress={() => setStatusModal(true)} fullWidth style={{ marginTop: Spacing[2] }} />
+        )}
+        {isTerminal && <Text style={styles.emptyText}>Referral is {referral.status.toLowerCase()} — no further actions.</Text>}
+      </Card>
+      <StatusUpdateModal
+        visible={statusModal} onClose={() => setStatusModal(false)} referral={referral}
+        onUpdated={(r) => { setReferral(r); setStatusModal(false); }}
       />
     </>
   );
 }
 
+function StatusUpdateModal({ visible, onClose, referral, onUpdated }) {
+  const validNext = VALID_TRANSITIONS[referral?.status] || [];
+  const [newStatus, setNewStatus] = useState(validNext[0] || '');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [outcomeMode, setOutcomeMode] = useState(false);
+  const [maternal, setMaternal] = useState('unknown');
+  const [neonatal, setNeonatal] = useState('unknown');
+  const [outcomeNotes, setOutcomeNotes] = useState('');
+
+  const handleUpdate = async () => {
+    setSaving(true); setError('');
+    try {
+      const { data } = await referralsApi.updateStatus(referral.id, newStatus, note);
+      if (['RECEIVED', 'COMPLETED'].includes(newStatus)) {
+        setOutcomeMode(true);
+        setSaving(false);
+      } else {
+        onUpdated(data);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setSaving(false);
+    }
+  };
+
+  const handleOutcome = async () => {
+    setSaving(true); setError('');
+    try {
+      const { data } = await referralsApi.outcome(referral.id, { maternal_outcome: maternal, neonatal_outcome: neonatal, outcome_notes: outcomeNotes });
+      onUpdated(data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally { setSaving(false); }
+  };
+
+  if (!referral) return null;
+
+  return (
+    <Modal visible={visible} onClose={onClose} title={outcomeMode ? 'Record Outcome' : 'Update Referral Status'}>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {validNext.length === 0 ? (
+        <Text style={styles.emptyText}>Referral is in a terminal state ({referral.status}).</Text>
+      ) : outcomeMode ? (
+        <>
+          <Select label="Maternal Outcome" value={maternal} onValueChange={setMaternal} options={[{ value: 'unknown', label: 'Unknown' }, { value: 'survived', label: 'Survived' }, { value: 'died', label: 'Died' }]} />
+          <Select label="Neonatal Outcome" value={neonatal} onValueChange={setNeonatal} options={[{ value: 'unknown', label: 'Unknown' }, { value: 'survived', label: 'Survived' }, { value: 'died', label: 'Died' }]} />
+          <Input label="Outcome Notes" value={outcomeNotes} onChangeText={setOutcomeNotes} multiline numberOfLines={2} />
+          <View style={styles.modalActions}>
+            <Button title="Skip" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+            <Button title="Save Outcome" onPress={handleOutcome} loading={saving} style={{ flex: 1 }} />
+          </View>
+        </>
+      ) : (
+        <>
+          <Select label="New Status" value={newStatus} onValueChange={setNewStatus} options={validNext.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))} />
+          <Input label="Note (optional)" value={note} onChangeText={setNote} multiline numberOfLines={2} placeholder="Context for this transition…" />
+          <View style={styles.modalActions}>
+            <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+            <Button title="Update Status" onPress={handleUpdate} loading={saving} style={{ flex: 1 }} />
+          </View>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function EditCaseModal({ visible, onClose, caseData: c, onSaved }) {
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  React.useEffect(() => {
+    if (visible && c) {
+      setForm({
+        gestational_age_weeks: c.gestational_age_weeks?.toString() || '',
+        gravida: c.gravida?.toString() || '', parity: c.parity?.toString() || '',
+        presenting_complaint: c.presenting_complaint || '',
+        danger_signs: c.danger_signs || [],
+        fetal_heart_rate: c.fetal_heart_rate?.toString() || '',
+        membranes_status: c.membranes_status || 'unknown',
+        obstetric_history: c.obstetric_history || '',
+        vital_signs: { ...c.vital_signs },
+      });
+    }
+  }, [visible, c]);
+
+  if (!form) return null;
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true); setError('');
+    try {
+      const vital_signs = {};
+      Object.entries(form.vital_signs || {}).forEach(([k, v]) => { if (v !== '' && v !== null) vital_signs[k] = Number(v); });
+      await casesApi.update(c.id, {
+        gestational_age_weeks: form.gestational_age_weeks ? Number(form.gestational_age_weeks) : null,
+        gravida: form.gravida ? Number(form.gravida) : null,
+        parity: form.parity ? Number(form.parity) : null,
+        presenting_complaint: form.presenting_complaint,
+        danger_signs: form.danger_signs,
+        fetal_heart_rate: form.fetal_heart_rate ? Number(form.fetal_heart_rate) : null,
+        membranes_status: form.membranes_status,
+        obstetric_history: form.obstetric_history,
+        vital_signs,
+      });
+      onSaved();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible={visible} onClose={onClose} title="Edit Case" size="lg">
+      <ScrollView style={{ maxHeight: 480 }}>
+        <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <Input label="Presenting Complaint" value={form.presenting_complaint} onChangeText={set('presenting_complaint')} multiline numberOfLines={2} />
+        <Input label="Gestational Age (wks)" value={form.gestational_age_weeks} onChangeText={set('gestational_age_weeks')} keyboardType="number-pad" />
+        <Input label="Gravida" value={form.gravida} onChangeText={set('gravida')} keyboardType="number-pad" />
+        <Input label="Parity" value={form.parity} onChangeText={set('parity')} keyboardType="number-pad" />
+        <Input label="Fetal Heart Rate" value={form.fetal_heart_rate} onChangeText={set('fetal_heart_rate')} keyboardType="number-pad" />
+        <Select label="Membranes Status" value={form.membranes_status} onValueChange={set('membranes_status')} options={[{ value: 'unknown', label: 'Unknown' }, { value: 'intact', label: 'Intact' }, { value: 'ruptured', label: 'Ruptured' }]} />
+        <Input label="Obstetric History" value={form.obstetric_history} onChangeText={set('obstetric_history')} multiline numberOfLines={2} />
+        <Text style={styles.sectionLabel}>Danger Signs</Text>
+        <DangerSignPicker value={form.danger_signs} onChange={(v) => setForm((f) => ({ ...f, danger_signs: v }))} />
+      </ScrollView>
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title="Save Changes" onPress={handleSave} loading={saving} style={{ flex: 1 }} />
+      </View>
+    </Modal>
+  );
+}
+
+function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
+  const [mode, setMode] = useState('ai'); // 'ai' | 'manual'
+  const [suggestion, setSuggestion] = useState(null);
+  const [facilities, setFacilities] = useState([]);
+  const [facilitySearch, setFacilitySearch] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [override, setOverride] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [createdReferral, setCreatedReferral] = useState(null);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    setLoading(true); setSuggestion(null); setSelected(null); setError(''); setCreatedReferral(null); setFacilitySearch('');
+    referralsApi.suggest(c.id)
+      .then(({ data }) => { setSuggestion(data); if (data.recommended_facility) setSelected(data.recommended_facility); })
+      .catch(() => setError('Could not load AI suggestions. Try manual selection.'))
+      .finally(() => setLoading(false));
+    facilitiesApi.list().then(({ data }) => setFacilities(Array.isArray(data) ? data : (data.results || []))).catch(() => {});
+  }, [visible, c?.id]);
+
+  const options = mode === 'ai'
+    ? [suggestion?.recommended_facility, ...(suggestion?.alternatives || [])].filter(Boolean)
+    : facilities.filter((f) => {
+        const q = facilitySearch.toLowerCase();
+        return !q || f.name?.toLowerCase().includes(q) || f.level_display?.toLowerCase().includes(q);
+      });
+  const needsOverride = selected && suggestion?.recommended_facility && selected.id !== suggestion.recommended_facility.id;
+
+  const handleCreate = async () => {
+    if (!selected) return;
+    setCreating(true); setError('');
+    try {
+      const { data } = await referralsApi.create({
+        emergency_case_id: c.id, receiving_facility_id: selected.id,
+        engine_recommendation_id: suggestion?.recommended_facility?.id || null,
+        engine_version: suggestion?.engine_version || '',
+        override_reason: mode === 'manual' || needsOverride ? override : '',
+      });
+      setCreatedReferral(data); // move to the transport-assignment step
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally { setCreating(false); }
+  };
+
+  if (createdReferral) {
+    return (
+      <PostReferralTransportModal
+        visible={visible} onClose={onClose}
+        referral={createdReferral} facilityName={selected?.name}
+        onDone={onSaved}
+      />
+    );
+  }
+
+  return (
+    <Modal visible={visible} onClose={onClose} title="Create Referral" size="lg">
+      <View style={styles.modeRow}>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'ai' && styles.modeBtnActive]} onPress={() => setMode('ai')}>
+          <Text style={[styles.modeBtnText, mode === 'ai' && styles.modeBtnTextActive]}>AI Suggested</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'manual' && styles.modeBtnActive]} onPress={() => setMode('manual')}>
+          <Text style={[styles.modeBtnText, mode === 'manual' && styles.modeBtnTextActive]}>Choose Manually</Text>
+        </TouchableOpacity>
+      </View>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {mode === 'manual' && (
+        <Input
+          value={facilitySearch} onChangeText={setFacilitySearch}
+          placeholder="Search by facility name or level…" icon="search-outline"
+        />
+      )}
+      <ScrollView style={{ maxHeight: 340 }}>
+        {loading && mode === 'ai' ? <Spinner /> : options.map((f, i) => (
+          <TouchableOpacity key={f.id} style={[styles.facilityRow, selected?.id === f.id && styles.facilityRowActive]} onPress={() => setSelected(f)}>
+            <Text style={styles.facilityName}>{f.name}</Text>
+            {mode === 'ai' && i === 0 && <Badge label="Recommended" variant="success" />}
+          </TouchableOpacity>
+        ))}
+        {mode === 'manual' && options.length === 0 && (
+          <Text style={styles.emptyText}>No facilities match "{facilitySearch}"</Text>
+        )}
+      </ScrollView>
+      {(mode === 'manual' || needsOverride) && (
+        <Input label="Override Reason" required value={override} onChangeText={setOverride} multiline numberOfLines={2} placeholder="Why this facility?" />
+      )}
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title="Create Referral" onPress={handleCreate} loading={creating} disabled={!selected || ((mode === 'manual' || needsOverride) && !override)} style={{ flex: 1 }} />
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Post-referral-creation transport assignment step ──────────────────────────
+// Matches web's CreateReferralModal 'transport' step: offers available vehicles
+// and links the TransportRequest to the newly-created referral via `referral`.
+function PostReferralTransportModal({ visible, onClose, referral, facilityName, onDone }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  React.useEffect(() => {
+    transportApi.vehicles.available()
+      .then(({ data }) => setVehicles(Array.isArray(data) ? data : (data.results || [])))
+      .catch(() => setVehicles([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleAssign = async () => {
+    if (!selectedVehicle) return;
+    setSaving(true); setError('');
+    try {
+      await transportApi.requests.create({
+        vehicle: selectedVehicle.id,
+        referral: referral.id,
+        ...(notes && { notes }),
+      });
+      onDone();
+    } catch (err) {
+      setError(getErrorMessage(err) || 'Failed to assign transport.');
+      setSaving(false);
+    }
+  };
+
+  const VEHICLE_ICON = { ambulance: '🚑', car: '🚗', motorcycle: '🏍️', tricycle: '🛺', truck: '🚛', other: '🚐' };
+
+  return (
+    <Modal visible={visible} onClose={onClose} title="Assign Transport">
+      <View style={styles.successBanner}>
+        <Ionicons name="checkmark-circle" size={18} color={Colors.successDark} />
+        <View>
+          <Text style={styles.successBannerTitle}>Referral created successfully</Text>
+          <Text style={styles.successBannerSub}>{facilityName}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.sectionLabel}>Assign a vehicle (optional)</Text>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+
+      {loading ? <Spinner /> : vehicles.length === 0 ? (
+        <Text style={styles.emptyText}>No vehicles available. You can assign transport later from the referral detail.</Text>
+      ) : (
+        <ScrollView style={{ maxHeight: 260 }}>
+          {vehicles.map((v) => (
+            <TouchableOpacity key={v.id} style={[styles.facilityRow, selectedVehicle?.id === v.id && styles.facilityRowActive]} onPress={() => setSelectedVehicle(v)}>
+              <Text style={{ fontSize: 18 }}>{VEHICLE_ICON[v.vehicle_type] || '🚗'}</Text>
+              <View style={{ flex: 1, marginLeft: Spacing[2] }}>
+                <Text style={styles.facilityName}>{v.registration}</Text>
+                <Text style={styles.vehicleSub}>{v.vehicle_type?.replace(/_/g, ' ')}{v.driver_name ? ` · ${v.driver_name}` : ''}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {!!selectedVehicle?.driver_name && (
+        <View style={styles.driverCard}>
+          <View>
+            <Text style={styles.driverLabel}>Assigned Driver</Text>
+            <Text style={styles.driverName}>{selectedVehicle.driver_name}</Text>
+            {!!selectedVehicle.driver_phone && <Text style={styles.driverPhone}>{selectedVehicle.driver_phone}</Text>}
+          </View>
+        </View>
+      )}
+
+      {!!selectedVehicle && (
+        <Input label="Notes (optional)" value={notes} onChangeText={setNotes} multiline numberOfLines={2} placeholder="Any notes for the driver…" />
+      )}
+
+      <View style={styles.modalActions}>
+        <Button title="Skip for now" variant="outline" onPress={onDone} style={{ flex: 1 }} />
+        <Button title="Assign & Finish" onPress={handleAssign} loading={saving} disabled={!selectedVehicle} style={{ flex: 1 }} />
+      </View>
+    </Modal>
+  );
+}
+
+function TransportRequestModal({ visible, onClose, onSaved, caseId }) {
+  const [available, setAvailable] = useState([]);
+  const [vehicle, setVehicle] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  React.useEffect(() => {
+    if (!visible) return;
+    setLoading(true);
+    transportApi.vehicles.available().then(({ data }) => setAvailable(Array.isArray(data) ? data : (data.results || []))).catch(() => setError('Could not load vehicles.')).finally(() => setLoading(false));
+  }, [visible]);
+
+  const handleSubmit = async () => {
+    setSaving(true); setError('');
+    try {
+      await transportApi.requests.create({ ...(vehicle && { vehicle }), ...(notes && { notes }) });
+      onSaved();
+    } catch (err) { setError(getErrorMessage(err)); setSaving(false); }
+  };
+
+  return (
+    <Modal visible={visible} onClose={onClose} title="Request Transport">
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {caseId && !loading && (
+        <TransportRecommendPanel
+          caseId={caseId}
+          availableVehicles={available}
+          onSelect={(vehicleId) => setVehicle(vehicleId)}
+        />
+      )}
+      {loading ? <Spinner /> : (
+        <Select label="Vehicle" value={vehicle} onValueChange={setVehicle} placeholder="Any available"
+          options={[{ value: '', label: '— Any available —' }, ...available.map((v) => ({ value: v.id, label: `${v.registration} (${v.vehicle_type?.replace(/_/g, ' ')})` }))]} />
+      )}
+      <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={2} />
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title="Request" onPress={handleSubmit} loading={saving} style={{ flex: 1 }} />
+      </View>
+    </Modal>
+  );
+}
+
+function ConsultationRequestModal({ visible, onClose, onSaved }) {
+  const [specialists, setSpecialists] = useState([]);
+  const [specialist, setSpecialist] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  React.useEffect(() => {
+    if (!visible) return;
+    setLoading(true);
+    consultationsApi.specialists.available().then(({ data }) => setSpecialists(Array.isArray(data) ? data : (data.results || []))).catch(() => setError('Could not load specialists.')).finally(() => setLoading(false));
+  }, [visible]);
+
+  const handleSubmit = async () => {
+    setSaving(true); setError('');
+    try {
+      await consultationsApi.create({ ...(specialist && { specialist }), ...(notes && { notes }) });
+      onSaved();
+    } catch (err) { setError(getErrorMessage(err)); setSaving(false); }
+  };
+
+  return (
+    <Modal visible={visible} onClose={onClose} title="Request Consultation">
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {loading ? <Spinner /> : (
+        <Select label="Specialist" value={specialist} onValueChange={setSpecialist} placeholder="Any available"
+          options={[{ value: '', label: '— Any available —' }, ...specialists.map((s) => ({ value: s.id, label: `${s.user_name} · ${s.specialty_display || s.specialty}` }))]} />
+      )}
+      <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={2} />
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title="Request" onPress={handleSubmit} loading={saving} style={{ flex: 1 }} />
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
-  loader:      { flex: 1, marginTop: 80 },
-  error:       { textAlign: 'center', marginTop: 80, color: '#dc2626' },
-  back:        { marginTop: 48, marginBottom: 8 },
-  backText:    { color: '#16a34a', fontWeight: '600', fontSize: 15 },
-  title:       { fontSize: 22, fontWeight: '700', color: '#0f172a', marginTop: 8 },
-  caseId:      { fontSize: 13, color: '#94a3b8', marginBottom: 20 },
-  section:     { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 },
-  sectionRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  sectionTitle:{ fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
-  sectionAction:{ fontSize: 12, color: '#16a34a', fontWeight: '700' },
-  row:         { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  rowLabel:    { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  rowValue:    { fontSize: 13, color: '#0f172a', fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
-  notes:       { fontSize: 13, color: '#374151', lineHeight: 20 },
-  signsRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  dangerBadge: { backgroundColor: '#fee2e2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  dangerBadgeText: { fontSize: 11, color: '#dc2626', fontWeight: '700' },
-  vitalGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  vitalChip:   { backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, minWidth: '30%' },
-  vitalLabel:  { fontSize: 11, color: '#166534', fontWeight: '600' },
-  vitalValue:  { fontSize: 13, color: '#0f172a' },
-  vitalUnit:   { fontSize: 11, color: '#64748b' },
-  noteItem:    { marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  noteHeader:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  noteAuthor:  { fontSize: 12, fontWeight: '700', color: '#0f172a' },
-  noteDate:    { fontSize: 11, color: '#94a3b8' },
-  noteContent: { fontSize: 13, color: '#374151', lineHeight: 20 },
-  referralRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
-  referralFacility: { fontSize: 13, color: '#0f172a', fontWeight: '500', flex: 1, marginRight: 8 },
-  statusPill:  { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  statusPillText: { fontSize: 10, fontWeight: '700' },
-  emptyMuted:  { fontSize: 13, color: '#94a3b8', textAlign: 'center', paddingVertical: 12 },
-  actions:     { gap: 10, marginBottom: 16 },
-  primaryBtn:  { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  outlineBtn:  { borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  outlineBtnText: { color: '#16a34a', fontWeight: '700', fontSize: 14 },
-  btnRow:      { flexDirection: 'row' },
-  halfRow:     { flexDirection: 'row', marginBottom: 4 },
-  modal:       { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 20 },
-  modalTitle:  { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  modalClose:  { fontSize: 22, color: '#64748b', padding: 4 },
-  mlabel:      { fontSize: 13, fontWeight: '600', color: '#374151', marginTop: 14, marginBottom: 6 },
-  minput:      { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#0f172a', backgroundColor: '#fff' },
-  errorBanner: { backgroundColor: '#fee2e2', borderRadius: 8, padding: 12, marginBottom: 12 },
-  errorText:   { fontSize: 13, color: '#dc2626' },
-  modeHint:    { fontSize: 13, color: '#64748b', marginBottom: 4 },
-  modeCardPrimary:  { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: '#dcfce7', backgroundColor: '#f0fdf4' },
-  modeCardSecondary:{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#fff' },
-  modeIcon:    { width: 40, height: 40, borderRadius: 10, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' },
-  modeIconGray:{ width: 40, height: 40, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  modeCardTitle:    { fontSize: 13, fontWeight: '700', color: '#166534' },
-  modeCardTitleGray:{ fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  modeCardSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  facilityCard:         { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#fff', marginBottom: 8 },
-  facilityCardSelected: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
-  facilityName:  { fontSize: 13, fontWeight: '600', color: '#0f172a' },
-  facilityMeta:  { fontSize: 12, color: '#64748b', marginTop: 2 },
-  facilitySearch:{ borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#0f172a', backgroundColor: '#fff', marginBottom: 12 },
-  rankBadge:     { width: 22, height: 22, borderRadius: 11, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  rankBadgeTop:  { backgroundColor: '#16a34a' },
-  rankText:      { fontSize: 11, fontWeight: '700', color: '#64748b' },
-  recBadge:      { backgroundColor: '#dcfce7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, marginLeft: 8 },
-  recBadgeText:  { fontSize: 10, color: '#166534', fontWeight: '700' },
-  switchModeBtn: { alignItems: 'center', paddingVertical: 12 },
-  switchModeBtnText: { fontSize: 12, color: '#16a34a', fontWeight: '600' },
-  confirmFooter: { borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16, marginTop: 8 },
-  selectedFacilityBox: { backgroundColor: '#f0fdf4', borderRadius: 10, padding: 14, marginBottom: 12 },
-  selectedFacilityLabel:{ fontSize: 11, color: '#64748b', marginBottom: 2 },
-  selectedFacilityName: { fontSize: 14, fontWeight: '700', color: '#166534' },
-  overrideWarning:      { fontSize: 11, color: '#d97706', marginTop: 4 },
-  successBanner: { backgroundColor: '#dcfce7', borderRadius: 12, padding: 16, marginBottom: 16 },
-  successTitle:  { fontSize: 14, fontWeight: '700', color: '#166534' },
-  successSub:    { fontSize: 12, color: '#16a34a', marginTop: 2 },
-  noVehicles:    { backgroundColor: '#f1f5f9', borderRadius: 10, padding: 16, marginBottom: 8 },
-  noVehiclesText:{ fontSize: 13, color: '#64748b', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing[4], paddingTop: Spacing[5], paddingBottom: Spacing[3],
+    backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: Typography.md, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  actionRow: { flexDirection: 'row', gap: Spacing[2] },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 10, ...Shadow.sm },
+  actionBtnText: { fontSize: Typography.xs, fontWeight: Typography.semibold, color: Colors.primary },
+  cardLabel: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing[2] },
+  patientName: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
+  kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  kvKey: { fontSize: Typography.xs, color: Colors.gray400 },
+  kvVal: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
+  notesText: { fontSize: Typography.sm, color: Colors.textSecondary, lineHeight: 20 },
+  notesTextSm: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 6 },
+  emptyText: { fontSize: Typography.sm, color: Colors.gray400 },
+  vitalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing[2] },
+  vitalBox: { width: '30%', backgroundColor: Colors.gray50, borderRadius: Radius.md, padding: Spacing[2], alignItems: 'center' },
+  vitalVal: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
+  vitalLabel: { fontSize: 10, color: Colors.gray400, marginTop: 2, textAlign: 'center' },
+  refHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[2] },
+  refRoute: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  refFacility: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary, flexShrink: 1 },
+  refOutcomeRow: { flexDirection: 'row', gap: Spacing[4], marginTop: Spacing[2], paddingTop: Spacing[2], borderTopWidth: 1, borderTopColor: Colors.gray100 },
+  noteRow: { paddingVertical: Spacing[2], borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  noteText: { fontSize: Typography.sm, color: Colors.textPrimary },
+  noteMeta: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  modalActions: { flexDirection: 'row', gap: Spacing[2], marginTop: Spacing[3] },
+  sectionLabel: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase', marginTop: Spacing[2], marginBottom: Spacing[2] },
+  modeRow: { flexDirection: 'row', gap: Spacing[2], marginBottom: Spacing[3] },
+  modeBtn: { flex: 1, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
+  modeBtnActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primary },
+  modeBtnText: { fontSize: Typography.xs, fontWeight: Typography.medium, color: Colors.textSecondary },
+  modeBtnTextActive: { color: Colors.primaryDark },
+  facilityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing[3], borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing[2] },
+  facilityRowActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  facilityName: { fontSize: Typography.sm, color: Colors.textPrimary },
+  successBanner: { flexDirection: 'row', alignItems: 'center', gap: Spacing[2], backgroundColor: Colors.successLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
+  successBannerTitle: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.successDark },
+  successBannerSub: { fontSize: Typography.xs, color: Colors.successDark, marginTop: 2 },
+  vehicleSub: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2, textTransform: 'capitalize' },
+  driverCard: { backgroundColor: Colors.successLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[2] },
+  driverLabel: { fontSize: 10, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase' },
+  driverName: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary, marginTop: 2 },
+  driverPhone: { fontSize: Typography.xs, color: Colors.textSecondary, marginTop: 1 },
 });

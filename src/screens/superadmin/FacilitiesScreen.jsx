@@ -1,365 +1,249 @@
-/**
- * screens/superadmin/FacilitiesScreen.jsx
- * Original NeoMatCare facilities UI — restored with new CRUD logic.
- */
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, RefreshControl, ActivityIndicator, Alert, Modal, ScrollView,
-} from 'react-native';
-import { facilitiesAPI, getErrorMessage } from '../../api/client';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { facilitiesApi, getErrorMessage } from '../../api/client';
+import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
-const FACILITY_TYPES = [
-  { value: 'hospital',       label: 'Hospital' },
-  { value: 'clinic',         label: 'Clinic' },
-  { value: 'health_center',  label: 'Health Center' },
-  { value: 'maternity_home', label: 'Maternity Home' },
-];
+const LEVEL_LABELS = { 1: 'CHPS Compound', 2: 'Health Centre', 3: 'District Hospital', 4: 'Regional Hospital', 5: 'Teaching Hospital', 6: 'Private Facility' };
+const LEVEL_OPTIONS = Object.entries(LEVEL_LABELS).map(([v, l]) => ({ value: Number(v), label: `${v} – ${l}` }));
 
 export default function FacilitiesScreen() {
   const [facilities, setFacilities] = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [search,     setSearch]     = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const [selected,   setSelected]   = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const params = {};
-      if (search) params.search = search;
-      const res = await facilitiesAPI.getFacilities(params);
-      setFacilities(Array.isArray(res.data) ? res.data : res.data?.results || []);
-    } catch {}
-    setLoading(false);
-    setRefreshing(false);
-  }, [search]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [levelFilter, setLevelFilter] = useState(null);
+  const [createModal, setCreateModal] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   useEffect(() => {
-    const t = setTimeout(load, search ? 400 : 0);
-    return () => clearTimeout(t);
-  }, [load]);
+    facilitiesApi.list()
+      .then(({ data }) => setFacilities(Array.isArray(data) ? data : (data.results || [])))
+      .catch((err) => setError(getErrorMessage(err)))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const handleDelete = async (id) => {
-    try { await facilitiesAPI.deleteFacility(id); setShowDetail(false); load(); }
-    catch (err) { Alert.alert('Error', getErrorMessage(err)); }
-  };
+  const filtered = facilities.filter((f) => {
+    const matchSearch = !search || f.name.toLowerCase().includes(search.toLowerCase()) || f.district?.toLowerCase().includes(search.toLowerCase());
+    const matchLevel = !levelFilter || f.level === levelFilter;
+    return matchSearch && matchLevel;
+  });
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => { setSelected(item); setShowDetail(true); }}
-    >
-      <View style={styles.cardTop}>
-        <View style={styles.iconBox}>
-          <Text style={styles.iconEmoji}>🏥</Text>
-        </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.cardType}>{item.facility_type?.replace(/_/g, ' ')}</Text>
-        </View>
-        <View style={[styles.activeDot, { backgroundColor: item.is_active !== false ? '#16a34a' : '#d1d5db' }]} />
-      </View>
-      <View style={styles.cardMeta}>
-        {item.region && <Text style={styles.metaText}>📍 {item.region}</Text>}
-        {item.staff_count != null && <Text style={styles.metaText}>👥 {item.staff_count} staff</Text>}
-        {item.capacity    != null && <Text style={styles.metaText}>🛏 {item.capacity} beds</Text>}
-      </View>
-    </TouchableOpacity>
-  );
-
-  if (loading && !refreshing) return <ActivityIndicator style={styles.loader} color="#16a34a" />;
+  if (loading) return <Spinner fullScreen />;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Facilities</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setShowCreate(true)}>
-          <Text style={styles.addBtnText}>+ Add</Text>
+        <View>
+          <Text style={styles.headerTitle}>Facilities Registry</Text>
+          <Text style={styles.headerSub}>{facilities.length} facilities registered</Text>
+        </View>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setCreateModal(true)}>
+          <Ionicons name="add" size={22} color={Colors.white} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.searchWrap}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search facilities..."
-          placeholderTextColor="#94a3b8"
-          value={search}
-          onChangeText={setSearch}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')} style={styles.clearBtn}>
-            <Text style={styles.clearBtnText}>✕</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
 
-      <FlatList
-        data={facilities}
-        keyExtractor={f => String(f.id)}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor="#16a34a" />}
-        ListEmptyComponent={<Text style={styles.empty}>No facilities found.</Text>}
-      />
+      <ScrollView contentContainerStyle={{ padding: Spacing[4] }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing[3] }}>
+          <View style={{ flexDirection: 'row', gap: Spacing[2] }}>
+            {Object.entries(LEVEL_LABELS).map(([l, label]) => (
+              <TouchableOpacity
+                key={l} style={[styles.levelChip, levelFilter === Number(l) && styles.levelChipActive]}
+                onPress={() => setLevelFilter((v) => (v === Number(l) ? null : Number(l)))}
+              >
+                <Text style={styles.levelChipCount}>{facilities.filter((f) => f.level === Number(l)).length}</Text>
+                <Text style={styles.levelChipLabel}>L{l}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
 
-      <FacilityFormModal
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        onSaved={() => { setShowCreate(false); load(); }}
-      />
+        <Input value={search} onChangeText={setSearch} placeholder="Search by name or district…" icon="search-outline" />
 
-      {selected && (
-        <FacilityDetailModal
-          visible={showDetail}
-          facility={selected}
-          onClose={() => setShowDetail(false)}
-          onDelete={handleDelete}
-          onUpdated={() => { setShowDetail(false); load(); }}
-        />
-      )}
+        {filtered.length === 0 ? (
+          <EmptyState icon="business-outline" title="No facilities found" message="Try adjusting your search or add a new facility" />
+        ) : filtered.map((f) => (
+          <View key={f.id} style={styles.card}>
+            <View style={styles.cardIcon}><Ionicons name="business" size={16} color={Colors.infoDark} /></View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.cardTitleRow}>
+                <Text style={styles.cardName}>{f.name}</Text>
+                <Badge label={`L${f.level} · ${LEVEL_LABELS[f.level]}`} variant="info" />
+                {!f.is_active && <Badge label="Inactive" variant="default" />}
+              </View>
+              <Text style={styles.cardLocation}>📍 {[f.district, f.region].filter(Boolean).join(', ') || 'Location not set'}</Text>
+              <View style={styles.featureRow}>
+                <FeatureTag active={f.theatre_available} label="Theatre" />
+                <FeatureTag active={f.blood_bank} label="Blood Bank" />
+                <FeatureTag active={f.on_call_specialist} label="Specialist" />
+              </View>
+              <Text style={styles.bedText}>{f.icu_beds_available} ICU · {f.nicu_cots_available} NICU</Text>
+            </View>
+            <View style={{ gap: 6 }}>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setEditTarget(f)}>
+                <Ionicons name="create-outline" size={15} color={Colors.successDark} />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.iconBtn, styles.iconBtnDanger]} onPress={() => setDeleteTarget(f)}>
+                <Ionicons name="trash-outline" size={15} color={Colors.dangerDark} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      <FacilityFormModal visible={createModal} onClose={() => setCreateModal(false)} onSaved={(f) => { setFacilities((prev) => [f, ...prev]); setCreateModal(false); }} />
+      <FacilityFormModal visible={!!editTarget} onClose={() => setEditTarget(null)} facility={editTarget} onSaved={(f) => { setFacilities((prev) => prev.map((x) => (x.id === f.id ? f : x))); setEditTarget(null); }} />
+      <DeleteFacilityModal visible={!!deleteTarget} onClose={() => setDeleteTarget(null)} facility={deleteTarget} onDeleted={(id) => { setFacilities((prev) => prev.filter((x) => x.id !== id)); setDeleteTarget(null); }} />
     </View>
   );
 }
 
-// ── Facility Form Modal ────────────────────────────────────────────────────────
-function FacilityFormModal({ visible, onClose, onSaved, existing }) {
-  const [form, setForm] = useState({
-    name:          existing?.name          || '',
-    facility_type: existing?.facility_type || '',
-    address:       existing?.address       || '',
-    region:        existing?.region        || '',
-    phone:         existing?.phone         || '',
-    email:         existing?.email         || '',
-    capacity:      existing?.capacity ? String(existing.capacity) : '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const set = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
+function FeatureTag({ active, label }) {
+  return (
+    <View style={styles.featureTag}>
+      <Ionicons name={active ? 'checkmark-circle' : 'close-circle'} size={11} color={active ? Colors.successDark : Colors.gray300} />
+      <Text style={[styles.featureTagText, active && { color: Colors.successDark }]}>{label}</Text>
+    </View>
+  );
+}
 
-  const handleSave = async () => {
-    if (!form.name.trim()) { Alert.alert('Required', 'Facility name is required.'); return; }
-    setLoading(true); setError('');
+function FacilityFormModal({ visible, onClose, facility, onSaved }) {
+  const isEdit = !!facility;
+  const INITIAL = {
+    name: '', level: 2, district: '', region: '', phone: '', latitude: '', longitude: '',
+    icu_beds_available: '0', nicu_cots_available: '0',
+    theatre_available: false, blood_bank: false, on_call_specialist: false, is_active: true,
+  };
+  const [form, setForm] = useState(INITIAL);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setError('');
+    setForm(facility ? {
+      ...INITIAL, ...facility,
+      latitude: String(facility.latitude), longitude: String(facility.longitude),
+      icu_beds_available: String(facility.icu_beds_available), nicu_cots_available: String(facility.nicu_cots_available),
+    } : INITIAL);
+  }, [visible, facility]);
+
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = async () => {
+    if (!form.name.trim()) { setError('Facility name is required.'); return; }
+    if (!form.latitude || !form.longitude) { setError('Latitude and longitude are required.'); return; }
+    setSaving(true); setError('');
     try {
-      const payload = { ...form, capacity: form.capacity ? Number(form.capacity) : undefined };
-      if (existing) await facilitiesAPI.updateFacility(existing.id, payload);
-      else          await facilitiesAPI.createFacility(payload);
-      onSaved();
+      const payload = {
+        name: form.name, level: Number(form.level), district: form.district, region: form.region, phone: form.phone,
+        latitude: Number(form.latitude), longitude: Number(form.longitude),
+        icu_beds_available: Number(form.icu_beds_available), nicu_cots_available: Number(form.nicu_cots_available),
+        theatre_available: form.theatre_available, blood_bank: form.blood_bank,
+        on_call_specialist: form.on_call_specialist, is_active: form.is_active,
+        available_services: facility?.available_services || [],
+      };
+      const { data } = isEdit ? await facilitiesApi.update(facility.id, payload) : await facilitiesApi.create(payload);
+      onSaved(data);
     } catch (err) {
       setError(getErrorMessage(err));
-    } finally { setLoading(false); }
+    } finally { setSaving(false); }
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <ScrollView style={styles.modal} keyboardShouldPersistTaps="handled">
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>{existing ? 'Edit Facility' : 'Add Facility'}</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+    <Modal visible={visible} onClose={onClose} title={isEdit ? 'Edit Facility' : 'Register New Facility'} size="lg">
+      <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
+        <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <Input label="Facility Name" required value={form.name} onChangeText={set('name')} placeholder="e.g. Korle-Bu Teaching Hospital" />
+        <Select label="Level" required value={form.level} onValueChange={set('level')} options={LEVEL_OPTIONS} />
+        <Input label="Phone" value={form.phone} onChangeText={set('phone')} placeholder="+233 ..." keyboardType="phone-pad" />
+        <Input label="District" value={form.district} onChangeText={set('district')} placeholder="e.g. Accra Metro" />
+        <Input label="Region" value={form.region} onChangeText={set('region')} placeholder="e.g. Greater Accra" />
+        <Input label="Latitude" required value={form.latitude} onChangeText={set('latitude')} placeholder="e.g. 5.5502" keyboardType="decimal-pad" />
+        <Input label="Longitude" required value={form.longitude} onChangeText={set('longitude')} placeholder="e.g. -0.2174" keyboardType="decimal-pad" />
+        <Input label="ICU Beds" value={form.icu_beds_available} onChangeText={set('icu_beds_available')} keyboardType="number-pad" />
+        <Input label="NICU Cots" value={form.nicu_cots_available} onChangeText={set('nicu_cots_available')} keyboardType="number-pad" />
+        <View style={styles.toggleBox}>
+          <ToggleRow label="Theatre" value={form.theatre_available} onChange={set('theatre_available')} />
+          <ToggleRow label="Blood Bank" value={form.blood_bank} onChange={set('blood_bank')} />
+          <ToggleRow label="On-call Specialist" value={form.on_call_specialist} onChange={set('on_call_specialist')} />
+          {isEdit && <ToggleRow label="Active" value={form.is_active} onChange={set('is_active')} last />}
         </View>
-        {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
-
-        <MField label="Facility Name *" value={form.name}    onChange={set('name')}    placeholder="e.g. Korle Bu Teaching Hospital" />
-
-        <Text style={styles.mlabel}>Facility Type</Text>
-        <View style={styles.typeGrid}>
-          {FACILITY_TYPES.map(t => (
-            <TouchableOpacity
-              key={t.value}
-              style={[styles.typeChip, form.facility_type === t.value && styles.typeChipActive]}
-              onPress={() => set('facility_type')(t.value)}
-            >
-              <Text style={[styles.typeChipText, form.facility_type === t.value && styles.typeChipTextActive]}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <MField label="Address"      value={form.address}  onChange={set('address')}  placeholder="Street address" />
-        <MField label="Region"       value={form.region}   onChange={set('region')}   placeholder="e.g. Greater Accra" />
-        <MField label="Phone"        value={form.phone}    onChange={set('phone')}    placeholder="+233 XX XXX XXXX"  keyboard="phone-pad" />
-        <MField label="Email"        value={form.email}    onChange={set('email')}    placeholder="facility@health.gh" keyboard="email-address" />
-        <MField label="Bed Capacity" value={form.capacity} onChange={set('capacity')} placeholder="e.g. 120"          keyboard="numeric" />
-
-        <View style={styles.btnRow}>
-          <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}>
-            <Text style={styles.outlineBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <View style={{ width: 12 }} />
-          <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>{existing ? 'Save' : 'Create'}</Text>}
-          </TouchableOpacity>
-        </View>
-        <View style={{ height: 40 }} />
       </ScrollView>
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title={isEdit ? 'Save Changes' : 'Register Facility'} onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
+      </View>
     </Modal>
   );
 }
 
-// ── Facility Detail Modal ──────────────────────────────────────────────────────
-function FacilityDetailModal({ visible, facility, onClose, onDelete, onUpdated }) {
-  const [showEdit,      setShowEdit]      = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [delLoading,    setDelLoading]    = useState(false);
-
-  if (showEdit) {
-    return (
-      <FacilityFormModal
-        visible={visible}
-        existing={facility}
-        onClose={() => setShowEdit(false)}
-        onSaved={() => { setShowEdit(false); onUpdated(); }}
-      />
-    );
-  }
-
+function ToggleRow({ label, value, onChange, last }) {
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <ScrollView style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle} numberOfLines={1}>{facility.name}</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
-        </View>
-
-        <View style={styles.detailSection}>
-          <DRow label="Type"     value={facility.facility_type?.replace(/_/g, ' ')} />
-          <DRow label="Region"   value={facility.region} />
-          <DRow label="Address"  value={facility.address} />
-          <DRow label="Phone"    value={facility.phone} />
-          <DRow label="Email"    value={facility.email} />
-          <DRow label="Capacity" value={facility.capacity ? `${facility.capacity} beds` : null} />
-          <DRow label="Staff"    value={facility.staff_count != null ? `${facility.staff_count} members` : null} />
-          <DRow label="Status"   value={facility.is_active !== false ? 'Active' : 'Inactive'}
-                                 valueColor={facility.is_active !== false ? '#16a34a' : '#dc2626'} />
-        </View>
-
-        {/* Services */}
-        {facility.services?.length > 0 && (
-          <View style={styles.detailSection}>
-            <Text style={styles.detailSectionTitle}>Services</Text>
-            <View style={styles.servicesRow}>
-              {facility.services.map((s, i) => (
-                <View key={i} style={styles.serviceChip}>
-                  <Text style={styles.serviceChipText}>{s}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {confirmDelete ? (
-          <View style={styles.confirmBox}>
-            <Text style={styles.confirmText}>Delete {facility.name}? This cannot be undone.</Text>
-            <View style={styles.btnRow}>
-              <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={() => setConfirmDelete(false)}>
-                <Text style={styles.outlineBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <View style={{ width: 12 }} />
-              <TouchableOpacity
-                style={[styles.dangerBtn, { flex: 1 }, delLoading && { opacity: 0.6 }]}
-                onPress={async () => { setDelLoading(true); await onDelete(facility.id); setDelLoading(false); }}
-                disabled={delLoading}
-              >
-                {delLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Delete</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.detailActions}>
-            <TouchableOpacity style={styles.outlineBtn} onPress={() => setShowEdit(true)}>
-              <Text style={styles.outlineBtnText}>Edit Facility</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.dangerBtn, { marginTop: 10 }]} onPress={() => setConfirmDelete(true)}>
-              <Text style={styles.primaryBtnText}>Delete Facility</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    </Modal>
-  );
-}
-
-function DRow({ label, value, valueColor }) {
-  if (!value) return null;
-  return (
-    <View style={styles.drow}>
-      <Text style={styles.drowLabel}>{label}</Text>
-      <Text style={[styles.drowValue, valueColor && { color: valueColor }]}>{String(value)}</Text>
+    <View style={[styles.toggleRow, last && { borderBottomWidth: 0 }]}>
+      <Text style={styles.toggleLabel}>{label}</Text>
+      <Switch value={value} onValueChange={onChange} trackColor={{ true: Colors.primary }} />
     </View>
   );
 }
 
-function MField({ label, value, onChange, placeholder, keyboard }) {
+function DeleteFacilityModal({ visible, onClose, facility, onDeleted }) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleDelete = async () => {
+    setDeleting(true); setError('');
+    try {
+      await facilitiesApi.delete(facility.id);
+      onDeleted(facility.id);
+    } catch {
+      setError('Failed to delete facility. Please try again.');
+      setDeleting(false);
+    }
+  };
+
+  if (!facility) return null;
   return (
-    <>
-      <Text style={styles.mlabel}>{label}</Text>
-      <TextInput
-        style={styles.minput}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-        keyboardType={keyboard || 'default'}
-        autoCapitalize="none"
-      />
-    </>
+    <Modal visible={visible} onClose={onClose} title="Delete Facility?">
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      <Text style={styles.deleteBody}>Are you sure you want to delete <Text style={{ fontWeight: Typography.bold }}>{facility.name}</Text>? This action cannot be undone.</Text>
+      <View style={styles.modalActions}>
+        <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+        <Button title="Delete Facility" variant="danger" icon="trash-outline" onPress={handleDelete} loading={deleting} style={{ flex: 2 }} />
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#f8fafc' },
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingTop: 56, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  title:       { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  addBtn:      { backgroundColor: '#16a34a', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  addBtnText:  { color: '#fff', fontWeight: '700', fontSize: 13 },
-  searchWrap:  { flexDirection: 'row', alignItems: 'center', margin: 16, marginBottom: 8, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14 },
-  searchInput: { flex: 1, fontSize: 15, color: '#0f172a', paddingVertical: 12 },
-  clearBtn:    { padding: 4 },
-  clearBtnText:{ fontSize: 14, color: '#94a3b8' },
-  list:        { padding: 16, paddingTop: 8, gap: 12 },
-  loader:      { flex: 1, marginTop: 60 },
-  card:        { backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  cardTop:     { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  iconBox:     { width: 44, height: 44, borderRadius: 12, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  iconEmoji:   { fontSize: 20 },
-  cardInfo:    { flex: 1 },
-  cardName:    { fontSize: 15, fontWeight: '600', color: '#0f172a' },
-  cardType:    { fontSize: 12, color: '#64748b', marginTop: 2, textTransform: 'capitalize' },
-  activeDot:   { width: 8, height: 8, borderRadius: 4 },
-  cardMeta:    { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  metaText:    { fontSize: 12, color: '#64748b' },
-  empty:       { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
-  modal:       { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 20 },
-  modalTitle:  { fontSize: 20, fontWeight: '700', color: '#0f172a', flex: 1, marginRight: 8 },
-  modalClose:  { fontSize: 22, color: '#64748b', padding: 4 },
-  mlabel:      { fontSize: 13, fontWeight: '600', color: '#374151', marginTop: 14, marginBottom: 6 },
-  minput:      { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#0f172a', backgroundColor: '#fff' },
-  typeGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  typeChip:           { borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff' },
-  typeChipActive:     { borderColor: '#16a34a', backgroundColor: '#dcfce7' },
-  typeChipText:       { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  typeChipTextActive: { color: '#16a34a', fontWeight: '700' },
-  errorBanner: { backgroundColor: '#fee2e2', borderRadius: 8, padding: 12, marginBottom: 12 },
-  errorText:   { fontSize: 13, color: '#dc2626' },
-  btnRow:      { flexDirection: 'row', marginTop: 24 },
-  primaryBtn:  { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText:{ color: '#fff', fontWeight: '700', fontSize: 14 },
-  outlineBtn:  { borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  outlineBtnText:{ color: '#16a34a', fontWeight: '700', fontSize: 14 },
-  dangerBtn:   { backgroundColor: '#dc2626', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  detailSection:      { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 },
-  detailSectionTitle: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  drow:        { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  drowLabel:   { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  drowValue:   { fontSize: 13, color: '#0f172a', fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
-  servicesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  serviceChip: { backgroundColor: '#dcfce7', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
-  serviceChipText: { fontSize: 12, color: '#166534', fontWeight: '600' },
-  detailActions:{ marginBottom: 16 },
-  confirmBox:  { backgroundColor: '#fee2e2', borderRadius: 10, padding: 16, marginBottom: 16 },
-  confirmText: { fontSize: 13, color: '#dc2626', marginBottom: 12 },
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing[4], paddingTop: Spacing[5], paddingBottom: Spacing[2] },
+  headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
+  headerSub: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  addBtn: { width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadow.sm },
+  levelChip: { alignItems: 'center', backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: 8, paddingHorizontal: 14, ...Shadow.sm },
+  levelChipActive: { borderWidth: 2, borderColor: Colors.primary },
+  levelChipCount: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
+  levelChipLabel: { fontSize: 10, color: Colors.gray400, marginTop: 2 },
+  card: { flexDirection: 'row', gap: Spacing[3], backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing[3], marginTop: Spacing[3], ...Shadow.sm },
+  cardIcon: { width: 36, height: 36, borderRadius: Radius.md, backgroundColor: Colors.infoLight, alignItems: 'center', justifyContent: 'center' },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  cardName: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  cardLocation: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 3 },
+  featureRow: { flexDirection: 'row', gap: Spacing[3], marginTop: 6 },
+  featureTag: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  featureTagText: { fontSize: 10, color: Colors.gray300 },
+  bedText: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 4 },
+  iconBtn: { width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: Colors.successLight, alignItems: 'center', justifyContent: 'center' },
+  iconBtnDanger: { backgroundColor: Colors.dangerLight },
+  toggleBox: { backgroundColor: Colors.gray50, borderRadius: Radius.md, paddingHorizontal: Spacing[3], marginTop: Spacing[2] },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing[3], borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  toggleLabel: { fontSize: Typography.sm, color: Colors.textSecondary },
+  deleteBody: { fontSize: Typography.sm, color: Colors.textSecondary, marginBottom: Spacing[2] },
+  modalActions: { flexDirection: 'row', gap: Spacing[2], marginTop: Spacing[3] },
 });

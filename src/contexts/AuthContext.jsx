@@ -1,42 +1,43 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authAPI, setLogoutCallback, getErrorMessage } from '../api/client';
+import { authApi, setLogoutCallback, getErrorMessage } from '../api/client';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/secureStorage';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 const AuthContext = createContext(null);
 
-// ─── Role → home screen mapping (mirrors frontend App.jsx redirects) ──────────
+// ─── Role → home tab mapping (mirrors frontend App.jsx redirects) ─────────────
 export const ROLE_HOME_SCREEN = {
-  health_worker:  'Cases',
-  specialist:     'Consultations',
-  facility_admin: 'Facility',
+  health_worker:  'Dashboard',
+  specialist:     'Dashboard',
+  facility_admin: 'Dashboard',
   driver:         'Transport',
-  superadmin:     'Facilities',
+  superadmin:     'Dashboard',
+  patient:        'Portal',
 };
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export const AuthProvider = ({ children }) => {
   const [user, setUser]       = useState(null);
   const [token, setToken]     = useState(null);
-  const [loading, setLoading] = useState(true); // true on boot while we read storage
+  const [loading, setLoading] = useState(true); // true on boot while we read storage / verify session
   const [error, setError]     = useState(null);
 
-  // ── Restore session on app launch ──
+  // ── Restore session on app launch — re-fetch /me/ to make sure token is still valid ──
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const [storedToken, storedUser] = await AsyncStorage.multiGet([
-          'access_token',
-          'user',
-        ]);
-        const t = storedToken[1];
-        const u = storedUser[1] ? JSON.parse(storedUser[1]) : null;
-        if (t && u) {
-          setToken(t);
-          setUser(u);
-        }
+        const storedToken = await getAccessToken();
+        if (!storedToken) { setLoading(false); return; }
+        setToken(storedToken);
+        const { data } = await authApi.me();
+        setUser(data);
+        await AsyncStorage.setItem('user', JSON.stringify(data));
       } catch (e) {
-        console.error('Session restore error:', e);
+        await clearTokens();
+        await AsyncStorage.removeItem('user');
+        setToken(null);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -44,12 +45,14 @@ export const AuthProvider = ({ children }) => {
     restoreSession();
   }, []);
 
-  // ── Register logout callback so 401 interceptor can call it ──
+  // ── Logout (also invoked by the 401 interceptor when refresh fails) ──
   const logout = useCallback(async () => {
     try {
-      await authAPI.logout().catch(() => {}); // best-effort
+      const refresh = await getRefreshToken();
+      if (refresh) await authApi.logout(refresh).catch(() => {});
     } finally {
-      await AsyncStorage.multiRemove(['access_token', 'refresh_token', 'user']);
+      await clearTokens();
+      await AsyncStorage.removeItem('user');
       setUser(null);
       setToken(null);
       setError(null);
@@ -60,22 +63,16 @@ export const AuthProvider = ({ children }) => {
     setLogoutCallback(logout);
   }, [logout]);
 
-  // ── Login ──
-  const login = async (credentials) => {
+  // ── Login ── POST /api/auth/login/ → { access, refresh, user }
+  const login = async (email, password) => {
     setError(null);
     try {
-      const response = await authAPI.login(credentials);
-      const { access, refresh, user: userData } = response.data;
-
-      await AsyncStorage.multiSet([
-        ['access_token',  access],
-        ['refresh_token', refresh],
-        ['user',          JSON.stringify(userData)],
-      ]);
-
-      setToken(access);
-      setUser(userData);
-      return { success: true, user: userData };
+      const { data } = await authApi.login({ email, password });
+      await setTokens(data.access, data.refresh);
+      await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.access);
+      setUser(data.user);
+      return { success: true, user: data.user };
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -83,20 +80,49 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // ── Register ──
-  // Backend /auth/register/ returns { message, user } without tokens,
-  // so we auto-login immediately after a successful registration.
+  // ── Register step 1 ── POST /api/auth/register/ → { user_id, channel, otp_sent }
+  // Does NOT log the user in — the backend creates an inactive account pending OTP.
   const register = async (data) => {
     setError(null);
     try {
-      await authAPI.register(data);
-      // Auto-login to obtain access + refresh tokens
-      return await login({ email: data.email, password: data.password });
+      const res = await authApi.register(data);
+      return { success: true, ...res.data };
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
       return { success: false, error: message };
     }
+  };
+
+  // ── Register step 2 ── POST /api/auth/verify-otp/ → { access, refresh, user }
+  const verifyOtp = async (userId, code) => {
+    setError(null);
+    try {
+      const { data } = await authApi.verifyOtp({ user_id: userId, code });
+      await loginWithTokens(data.access, data.refresh, data.user);
+      return { success: true, user: data.user };
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      return { success: false, error: message };
+    }
+  };
+
+  const resendOtp = async (userId) => {
+    try {
+      const { data } = await authApi.resendOtp({ user_id: userId });
+      return { success: true, ...data };
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err) };
+    }
+  };
+
+  // ── Used directly after OTP verification (backend already returns tokens) ──
+  const loginWithTokens = async (access, refresh, userData) => {
+    await setTokens(access, refresh);
+    await AsyncStorage.setItem('user', JSON.stringify(userData));
+    setToken(access);
+    setUser(userData);
   };
 
   // ── Update local user cache (called after profile edits) ──
@@ -115,6 +141,7 @@ export const AuthProvider = ({ children }) => {
   const isFacilityAdmin  = userRole === 'facility_admin';
   const isDriver         = userRole === 'driver';
   const isSuperadmin     = userRole === 'superadmin';
+  const isPatient        = userRole === 'patient';
 
   return (
     <AuthContext.Provider
@@ -125,14 +152,20 @@ export const AuthProvider = ({ children }) => {
         error,
         isAuthenticated,
         userRole,
+        role: userRole,
         homeScreen,
         isHealthWorker,
         isSpecialist,
         isFacilityAdmin,
         isDriver,
         isSuperadmin,
+        isSuperAdmin: isSuperadmin,
+        isPatient,
         login,
         register,
+        verifyOtp,
+        resendOtp,
+        loginWithTokens,
         logout,
         updateUser,
         clearError: () => setError(null),

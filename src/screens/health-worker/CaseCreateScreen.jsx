@@ -1,0 +1,528 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  casesApi, facilitiesApi, patientsApi, referralsApi, transportApi, consultationsApi, getErrorMessage,
+} from '../../api/client';
+import { Input, Select, Button, ErrorBanner, Spinner, Badge } from '../../components/ui';
+import { DangerSignPicker } from '../../components/ui/dangerSigns';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
+
+const BLOOD_GROUPS = ['unknown', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((g) => ({ value: g, label: g }));
+const MEMBRANES = [
+  { value: 'unknown', label: 'Unknown' }, { value: 'intact', label: 'Intact' }, { value: 'ruptured', label: 'Ruptured' },
+];
+const VITAL_FIELDS = [
+  ['systolic_bp', 'Systolic BP (mmHg)'], ['diastolic_bp', 'Diastolic BP (mmHg)'],
+  ['heart_rate', 'Heart Rate (bpm)'], ['respiratory_rate', 'Resp. Rate (/min)'],
+  ['temperature', 'Temperature (°C)'], ['spo2', 'SpO2 (%)'],
+];
+const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' };
+
+const INITIAL_FORM = {
+  patient_id: null,
+  patient_name: '', patient_phone_number: '', hospital_id: '',
+  patient_age: '', patient_town: '', patient_blood_group: 'unknown', patient_anc_visits: '0',
+  gestational_age_weeks: '', gravida: '', parity: '',
+  presenting_complaint: '', danger_signs: [], membranes_status: 'unknown',
+  fetal_heart_rate: '', obstetric_history: '', referring_facility: '',
+  vital_signs: { systolic_bp: '', diastolic_bp: '', heart_rate: '', respiratory_rate: '', temperature: '', spo2: '' },
+};
+
+export default function CaseCreateScreen({ navigation, route }) {
+  const preselectedPatientId = route?.params?.patientId || null;
+  const [step, setStep] = useState(preselectedPatientId ? 1 : 0); // 0 = patient search, 1 = case form, 2 = actions
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [createdCase, setCreatedCase] = useState(null);
+
+  useEffect(() => {
+    if (preselectedPatientId) {
+      patientsApi.detail(preselectedPatientId).then(({ data: p }) => {
+        setForm((f) => ({
+          ...f,
+          patient_id: p.id, patient_name: p.patient_name || '', hospital_id: p.hospital_id || '',
+          patient_phone_number: p.patient_phone_number || '', patient_age: String(p.age || ''),
+          patient_town: p.town || '', patient_blood_group: p.blood_group || 'unknown',
+          patient_anc_visits: String(p.anc_visits || 0),
+        }));
+      }).catch(() => {});
+    }
+  }, [preselectedPatientId]);
+
+  const handleClose = () => navigation.goBack();
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
+          <Ionicons name={step === 2 ? 'close' : 'arrow-back'} size={22} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>{step === 0 ? 'Find Patient' : step === 1 ? 'New Emergency Case' : 'Next Steps'}</Text>
+          <Text style={styles.headerSub}>{step === 0 ? 'Step 1 of 3' : step === 1 ? 'Step 2 of 3' : 'Step 3 of 3'}</Text>
+        </View>
+        <View style={{ width: 36 }} />
+      </View>
+
+      {step === 0 && (
+        <PatientSearchStep
+          onSelect={(p) => {
+            setForm((f) => ({
+              ...f,
+              patient_id: p.id, patient_name: p.patient_name || '', hospital_id: p.hospital_id || '',
+              patient_phone_number: p.patient_phone_number || '', patient_age: String(p.age || ''),
+              patient_town: p.town || '', patient_blood_group: p.blood_group || 'unknown',
+              patient_anc_visits: String(p.anc_visits || 0),
+            }));
+            setStep(1);
+          }}
+          onSkip={() => { setForm((f) => ({ ...f, patient_id: null })); setStep(1); }}
+        />
+      )}
+
+      {step === 1 && (
+        <CaseFormStep
+          form={form} setForm={setForm}
+          onCancel={handleClose}
+          onCreated={(c) => { setCreatedCase(c); setStep(2); }}
+        />
+      )}
+
+      {step === 2 && createdCase && (
+        <ActionPicker caseData={createdCase} navigation={navigation} />
+      )}
+    </View>
+  );
+}
+
+// ─── Step 0: search / link existing patient ────────────────────────────────────
+function PatientSearchStep({ onSelect, onSkip }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setLoading(true); setSearched(true);
+    try {
+      const { data } = await patientsApi.list({ q: query.trim() });
+      setResults(Array.isArray(data) ? data : (data.results || []));
+    } catch { setResults([]); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <View style={styles.hintBox}>
+        <Text style={styles.hintTitle}>Search for an existing patient</Text>
+        <Text style={styles.hintBody}>Linking an existing record prevents duplicates and preserves their full history</Text>
+      </View>
+
+      <View style={styles.searchRow}>
+        <View style={{ flex: 1 }}>
+          <Input value={query} onChangeText={setQuery} placeholder="Search by name, hospital ID, or phone…" icon="search-outline" returnKeyType="search" onSubmitEditing={handleSearch} />
+        </View>
+        <Button title={loading ? '…' : 'Search'} onPress={handleSearch} disabled={loading || !query.trim()} style={{ marginLeft: Spacing[2], height: 48 }} />
+      </View>
+
+      {searched && !loading && results.length === 0 && (
+        <Text style={styles.emptyText}>No patients found. You can create a new patient below.</Text>
+      )}
+
+      {results.map((p) => (
+        <TouchableOpacity key={p.id} style={styles.patientResult} onPress={() => onSelect(p)}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.resultTitleRow}>
+              <Text style={styles.resultName}>{p.patient_name || 'Unnamed patient'}</Text>
+              <Badge label={`${p.risk_level?.toUpperCase()} RISK`} variant={RISK_VARIANT[p.risk_level] || 'default'} />
+            </View>
+            <Text style={styles.resultMeta}>ID: {p.hospital_id || '—'} · Age {p.age} · {p.town || '—'} · {p.anc_visits} ANC visit{p.anc_visits !== 1 ? 's' : ''}</Text>
+            {p.case_count > 0 && <Text style={styles.resultCaseCount}>{p.case_count} previous case{p.case_count !== 1 ? 's' : ''}</Text>}
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      ))}
+
+      <Button title="Create new patient" variant="outline" fullWidth onPress={onSkip} style={{ marginTop: Spacing[4] }} />
+    </ScrollView>
+  );
+}
+
+// ─── Step 1: full case form ─────────────────────────────────────────────────────
+function CaseFormStep({ form, setForm, onCancel, onCreated }) {
+  const [facilities, setFacilities] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    facilitiesApi.list()
+      .then(({ data }) => setFacilities(Array.isArray(data) ? data : (data.results || [])))
+      .catch(() => setError('Could not load facilities.'));
+  }, []);
+
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const setVital = (k) => (v) => setForm((f) => ({ ...f, vital_signs: { ...f.vital_signs, [k]: v } }));
+
+  const handleSubmit = async () => {
+    if (!form.patient_age) { setError('Patient age is required.'); return; }
+    if (!form.presenting_complaint.trim()) { setError('Presenting complaint is required.'); return; }
+    if (!form.referring_facility) { setError('Please select a referring facility.'); return; }
+    setError(''); setLoading(true);
+    try {
+      const vital_signs = {};
+      Object.entries(form.vital_signs).forEach(([k, v]) => { if (v !== '') vital_signs[k] = Number(v); });
+
+      const isExisting = !!form.patient_id;
+      const common = {
+        presenting_complaint: form.presenting_complaint.trim(),
+        danger_signs: form.danger_signs,
+        gestational_age_weeks: form.gestational_age_weeks ? Number(form.gestational_age_weeks) : null,
+        gravida: form.gravida ? Number(form.gravida) : null,
+        parity: form.parity ? Number(form.parity) : null,
+        membranes_status: form.membranes_status,
+        fetal_heart_rate: form.fetal_heart_rate ? Number(form.fetal_heart_rate) : null,
+        obstetric_history: form.obstetric_history.trim(),
+        vital_signs,
+        referring_facility: form.referring_facility,
+      };
+      const payload = isExisting
+        ? { patient_id: form.patient_id, ...common }
+        : {
+            patient_name: form.patient_name.trim(),
+            patient_age: Number(form.patient_age),
+            patient_phone_number: form.patient_phone_number.trim(),
+            hospital_id: form.hospital_id.trim(),
+            patient_town: form.patient_town.trim(),
+            patient_blood_group: form.patient_blood_group,
+            patient_anc_visits: Number(form.patient_anc_visits) || 0,
+            ...common,
+          };
+      const { data } = await casesApi.create(payload);
+      onCreated(data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ErrorBanner message={error} onDismiss={() => setError('')} />
+
+        {!form.patient_id ? (
+          <>
+            <Text style={styles.sectionLabel}>Patient Identity</Text>
+            <Input label="Patient Name" value={form.patient_name} onChangeText={set('patient_name')} placeholder="Full name" />
+            <Input label="Hospital ID" value={form.hospital_id} onChangeText={set('hospital_id')} placeholder="e.g. KBTH-001-2026" />
+            <Input label="Phone Number" value={form.patient_phone_number} onChangeText={set('patient_phone_number')} placeholder="e.g. 0244000000" keyboardType="phone-pad" />
+            <Input label="Age" required value={form.patient_age} onChangeText={set('patient_age')} placeholder="e.g. 28" keyboardType="number-pad" />
+            <Text style={styles.sectionLabel}>Patient Details</Text>
+            <Input label="Town" value={form.patient_town} onChangeText={set('patient_town')} placeholder="e.g. Kumasi" />
+            <Select label="Blood Group" value={form.patient_blood_group} onValueChange={set('patient_blood_group')} options={BLOOD_GROUPS} />
+            <Input label="ANC Visits" value={form.patient_anc_visits} onChangeText={set('patient_anc_visits')} placeholder="0" keyboardType="number-pad" />
+          </>
+        ) : (
+          <View style={styles.linkedBox}>
+            <Ionicons name="link" size={16} color={Colors.primaryDark} />
+            <Text style={styles.linkedText}>Linked to existing patient: {form.patient_name}</Text>
+          </View>
+        )}
+
+        <Text style={styles.sectionLabel}>Facility</Text>
+        <Select
+          label="Referring Facility" required value={form.referring_facility} onValueChange={set('referring_facility')}
+          options={facilities.map((f) => ({ value: f.id, label: f.name }))}
+        />
+
+        <Text style={styles.sectionLabel}>Obstetric History</Text>
+        <Input label="Gestational Age (wks)" value={form.gestational_age_weeks} onChangeText={set('gestational_age_weeks')} placeholder="e.g. 36" keyboardType="number-pad" />
+        <Input label="Gravida" value={form.gravida} onChangeText={set('gravida')} placeholder="e.g. 2" keyboardType="number-pad" />
+        <Input label="Parity" value={form.parity} onChangeText={set('parity')} placeholder="e.g. 1" keyboardType="number-pad" />
+        <Input label="Obstetric History" value={form.obstetric_history} onChangeText={set('obstetric_history')} placeholder="Relevant prior complications or surgeries…" multiline numberOfLines={2} />
+
+        <Text style={styles.sectionLabel}>Clinical</Text>
+        <Input label="Presenting Complaint" required value={form.presenting_complaint} onChangeText={set('presenting_complaint')} placeholder="Chief complaint in your own words…" multiline numberOfLines={2} />
+
+        <Text style={styles.sectionLabel}>Danger Signs</Text>
+        <DangerSignPicker value={form.danger_signs} onChange={(v) => setForm((f) => ({ ...f, danger_signs: v }))} />
+
+        <Text style={styles.sectionLabel}>Vital Signs <Text style={styles.sectionSub}>(record what's available)</Text></Text>
+        {VITAL_FIELDS.map(([k, label]) => (
+          <Input key={k} label={label} value={form.vital_signs[k]} onChangeText={setVital(k)} placeholder="—" keyboardType="decimal-pad" />
+        ))}
+        <Input label="Fetal Heart Rate (bpm)" value={form.fetal_heart_rate} onChangeText={set('fetal_heart_rate')} placeholder="—" keyboardType="number-pad" />
+        <Select label="Membranes Status" value={form.membranes_status} onValueChange={set('membranes_status')} options={MEMBRANES} />
+
+        <Button title="Create Case" onPress={handleSubmit} loading={loading} fullWidth icon="arrow-forward" iconPosition="right" style={{ marginTop: Spacing[3] }} />
+        <Button title="Cancel" variant="ghost" fullWidth onPress={onCancel} style={{ marginTop: Spacing[2] }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ─── Step 2: post-create action picker ─────────────────────────────────────────
+function ActionPicker({ caseData, navigation }) {
+  const [panel, setPanel] = useState(null); // 'refer' | 'transport' | 'consult'
+
+  const finish = () => navigation.replace('CaseDetail', { id: caseData.id });
+
+  if (panel === 'refer') return <BackWrap onBack={() => setPanel(null)}><ReferralPanel caseData={caseData} onDone={finish} /></BackWrap>;
+  if (panel === 'transport') return <BackWrap onBack={() => setPanel(null)}><TransportPanel onDone={finish} /></BackWrap>;
+  if (panel === 'consult') return <BackWrap onBack={() => setPanel(null)}><ConsultationPanel onDone={finish} /></BackWrap>;
+
+  const actions = [
+    { key: 'refer', icon: 'swap-horizontal', color: Colors.primary, label: 'Make a Referral', desc: 'Get AI facility suggestions and refer the patient', recommended: true },
+    { key: 'transport', icon: 'car-outline', color: Colors.infoDark, label: 'Request Transport', desc: 'Dispatch a vehicle to the patient' },
+    { key: 'consult', icon: 'videocam-outline', color: '#7c3aed', label: 'Book a Consultation', desc: 'Connect with a specialist for clinical advice' },
+  ];
+
+  return (
+    <ScrollView contentContainerStyle={styles.scroll}>
+      <View style={styles.successBox}>
+        <Ionicons name="checkmark-circle" size={20} color={Colors.successDark} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.successTitle}>Case created successfully</Text>
+          <Text style={styles.successSub}>What would you like to do next for this patient?</Text>
+        </View>
+      </View>
+
+      {actions.map((a) => (
+        <TouchableOpacity key={a.key} style={[styles.actionCard, a.recommended && styles.actionCardRecommended]} onPress={() => setPanel(a.key)}>
+          <View style={[styles.actionIcon, { backgroundColor: a.color + '20' }]}>
+            <Ionicons name={a.icon} size={20} color={a.color} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.actionLabel}>{a.label}</Text>
+              {a.recommended && <Badge label="Recommended" variant="primary" />}
+            </View>
+            <Text style={styles.actionDesc}>{a.desc}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={Colors.gray400} />
+        </TouchableOpacity>
+      ))}
+
+      <Button title="Done — View Case" variant="outline" fullWidth onPress={finish} style={{ marginTop: Spacing[4] }} />
+    </ScrollView>
+  );
+}
+
+function BackWrap({ onBack, children }) {
+  return (
+    <ScrollView contentContainerStyle={styles.scroll}>
+      <TouchableOpacity onPress={onBack} style={styles.backLink}>
+        <Ionicons name="arrow-back" size={14} color={Colors.gray400} />
+        <Text style={styles.backLinkText}>Back</Text>
+      </TouchableOpacity>
+      {children}
+    </ScrollView>
+  );
+}
+
+function ReferralPanel({ caseData, onDone }) {
+  const [recommended, setRecommended] = useState(null);
+  const [alternatives, setAlternatives] = useState([]);
+  const [engineVersion, setEngineVersion] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [override, setOverride] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    referralsApi.suggest(caseData.id)
+      .then(({ data }) => {
+        setRecommended(data.recommended_facility || null);
+        setAlternatives(data.alternatives || []);
+        setEngineVersion(data.engine_version || '');
+        if (data.recommended_facility) setSelected(data.recommended_facility);
+      })
+      .catch(() => setError('Could not load suggestions. Check your network and try again.'))
+      .finally(() => setLoading(false));
+  }, [caseData.id]);
+
+  const allOptions = [recommended, ...alternatives].filter(Boolean);
+  const needsOverride = selected && recommended && selected.id !== recommended.id;
+
+  const handleCreate = async () => {
+    setError(''); setCreating(true);
+    try {
+      await referralsApi.create({
+        emergency_case_id: caseData.id,
+        receiving_facility_id: selected.id,
+        engine_recommendation_id: recommended?.id || null,
+        engine_version: engineVersion,
+        override_reason: override,
+      });
+      onDone();
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setCreating(false);
+    }
+  };
+
+  if (loading) return <View style={{ paddingVertical: Spacing[8], alignItems: 'center', gap: Spacing[2] }}><Spinner /><Text style={styles.loadingText}>Analysing case with AI engine…</Text></View>;
+
+  return (
+    <View>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {allOptions.map((s, i) => (
+        <TouchableOpacity key={s.id} style={[styles.facilityCard, selected?.id === s.id && styles.facilityCardActive]} onPress={() => setSelected(s)}>
+          <View style={[styles.rankBadge, i === 0 && styles.rankBadgeTop]}><Text style={[styles.rankText, i === 0 && styles.rankTextTop]}>{i + 1}</Text></View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text style={styles.facilityName}>{s.name}</Text>
+              {i === 0 && <Badge label="Recommended" variant="success" />}
+              {!!s.level_display && <Badge label={s.level_display} variant="default" />}
+            </View>
+            <View style={{ flexDirection: 'row', gap: Spacing[3], marginTop: 4 }}>
+              {s.distance_km != null && <Text style={styles.facilityMeta}>{s.distance_km.toFixed(1)} km</Text>}
+              {s.score != null && <Text style={styles.facilityScore}>Match: {Math.round((s.score || 0) * 100)}%</Text>}
+            </View>
+          </View>
+        </TouchableOpacity>
+      ))}
+      {allOptions.length === 0 && !error && <Text style={styles.emptyText}>No suitable facilities found. You can still create the referral manually from the case detail page.</Text>}
+
+      {needsOverride && (
+        <Input label="Override Reason" required value={override} onChangeText={setOverride} placeholder="Explain why you're overriding the engine recommendation…" multiline numberOfLines={2} />
+      )}
+
+      <View style={styles.footerRow}>
+        <Button title="Skip for now" variant="outline" onPress={onDone} style={{ flex: 1 }} />
+        <Button title="Create Referral" icon="swap-horizontal" onPress={handleCreate} loading={creating} disabled={!selected || (needsOverride && !override)} style={{ flex: 2 }} />
+      </View>
+    </View>
+  );
+}
+
+function TransportPanel({ onDone }) {
+  const [available, setAvailable] = useState([]);
+  const [vehicle, setVehicle] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    transportApi.vehicles.available()
+      .then(({ data }) => setAvailable(Array.isArray(data) ? data : (data.results || [])))
+      .catch(() => setError('Could not load vehicles.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSubmit = async () => {
+    setSaving(true);
+    try {
+      await transportApi.requests.create({ ...(vehicle && { vehicle }), ...(notes && { notes }) });
+      onDone();
+    } catch { setError('Failed to request transport.'); setSaving(false); }
+  };
+
+  return (
+    <View>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      {loading ? <Spinner /> : (
+        <Select label="Select Vehicle" value={vehicle} onValueChange={setVehicle} placeholder="Any available"
+          options={[{ value: '', label: '— Any available —' }, ...available.map((t) => ({ value: t.id, label: `${t.registration} (${t.vehicle_type?.replace(/_/g, ' ')})${t.driver_name ? ` · ${t.driver_name}` : ''}` }))]}
+        />
+      )}
+      <Input label="Notes" value={notes} onChangeText={setNotes} placeholder="Location details, landmarks, case reference…" multiline numberOfLines={2} />
+      <View style={styles.footerRow}>
+        <Button title="Skip for now" variant="outline" onPress={onDone} style={{ flex: 1 }} />
+        <Button title="Request Transport" icon="car-outline" onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
+      </View>
+    </View>
+  );
+}
+
+function ConsultationPanel({ onDone }) {
+  const [specialists, setSpecialists] = useState([]);
+  const [specialist, setSpecialist] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    consultationsApi.specialists.available()
+      .then(({ data }) => setSpecialists(Array.isArray(data) ? data : (data.results || [])))
+      .catch(() => setError('Could not load specialists.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSubmit = async () => {
+    setSaving(true);
+    try {
+      await consultationsApi.create({ ...(specialist && { specialist }), ...(notes && { notes }) });
+      onDone();
+    } catch { setError('Failed to request consultation.'); setSaving(false); }
+  };
+
+  return (
+    <View>
+      <ErrorBanner message={error} onDismiss={() => setError('')} />
+      <Text style={styles.hintBody}>Leave blank to request any available specialist</Text>
+      {loading ? <Spinner /> : (
+        <Select label="Specialist" value={specialist} onValueChange={setSpecialist} placeholder="Any available"
+          options={[{ value: '', label: '— Any available —' }, ...specialists.map((s) => ({ value: s.id, label: `${s.user_name} · ${s.specialty_display || s.specialty}` }))]}
+        />
+      )}
+      <Input label="Notes" value={notes} onChangeText={setNotes} placeholder="Reason for consultation, specific questions…" multiline numberOfLines={2} />
+      <View style={styles.footerRow}>
+        <Button title="Skip for now" variant="outline" onPress={onDone} style={{ flex: 1 }} />
+        <Button title="Book Consultation" icon="videocam-outline" onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing[4], paddingTop: Spacing[5], paddingBottom: Spacing[3],
+    backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: Typography.md, fontWeight: Typography.semibold, color: Colors.textPrimary, textAlign: 'center' },
+  headerSub: { fontSize: Typography.xs, color: Colors.gray400, textAlign: 'center' },
+  scroll: { padding: Spacing[4], paddingBottom: Spacing[10] },
+  sectionLabel: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: Spacing[3], marginBottom: Spacing[2] },
+  sectionSub: { textTransform: 'none', fontWeight: Typography.regular },
+  hintBox: { backgroundColor: Colors.primaryLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
+  hintTitle: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.primaryDark },
+  hintBody: { fontSize: Typography.xs, color: Colors.primaryDark, marginTop: 2 },
+  searchRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  emptyText: { fontSize: Typography.sm, color: Colors.gray400, textAlign: 'center', paddingVertical: Spacing[4] },
+  patientResult: { flexDirection: 'row', alignItems: 'center', gap: Spacing[2], backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing[3], marginBottom: Spacing[2], ...Shadow.sm },
+  resultTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  resultName: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  resultMeta: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  resultCaseCount: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  linkedBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primaryLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
+  linkedText: { fontSize: Typography.sm, color: Colors.primaryDark, fontWeight: Typography.medium },
+  successBox: { flexDirection: 'row', alignItems: 'center', gap: Spacing[2], backgroundColor: Colors.successLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[4] },
+  successTitle: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.successDark },
+  successSub: { fontSize: Typography.xs, color: Colors.successDark, marginTop: 2 },
+  actionCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing[3], marginBottom: Spacing[2], borderWidth: 1, borderColor: Colors.border },
+  actionCardRecommended: { borderColor: Colors.primary, borderWidth: 2, backgroundColor: Colors.primaryLight },
+  actionIcon: { width: 40, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  actionLabel: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  actionDesc: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  backLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing[3] },
+  backLinkText: { fontSize: Typography.sm, color: Colors.gray400 },
+  loadingText: { fontSize: Typography.sm, color: Colors.gray400 },
+  facilityCard: { flexDirection: 'row', gap: Spacing[3], backgroundColor: Colors.white, borderWidth: 2, borderColor: Colors.border, borderRadius: Radius.lg, padding: Spacing[3], marginBottom: Spacing[2] },
+  facilityCardActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  rankBadge: { width: 22, height: 22, borderRadius: Radius.full, backgroundColor: Colors.gray100, alignItems: 'center', justifyContent: 'center' },
+  rankBadgeTop: { backgroundColor: Colors.primary },
+  rankText: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.textSecondary },
+  rankTextTop: { color: Colors.white },
+  facilityName: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  facilityMeta: { fontSize: Typography.xs, color: Colors.gray400 },
+  facilityScore: { fontSize: Typography.xs, fontWeight: Typography.semibold, color: Colors.primaryDark },
+  footerRow: { flexDirection: 'row', gap: Spacing[2], marginTop: Spacing[4], paddingTop: Spacing[3], borderTopWidth: 1, borderTopColor: Colors.border },
+});

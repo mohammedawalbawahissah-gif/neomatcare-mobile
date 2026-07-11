@@ -16,32 +16,48 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 
 // Auth
-import LoginScreen    from '../screens/auth/LoginScreen';
-import RegisterScreen from '../screens/auth/RegisterScreen';
+import LoginScreen           from '../screens/auth/LoginScreen';
+import RegisterScreen        from '../screens/auth/RegisterScreen';
+import PatientRegisterScreen from '../screens/auth/PatientRegisterScreen';
 
 // Shared
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import ProfileScreen   from '../screens/shared/ProfileScreen';
 
 // Health worker
-import CasesScreen      from '../screens/health-worker/CasesScreen';
-import CaseDetailScreen from '../screens/health-worker/CaseDetailScreen';
+import CasesScreen       from '../screens/health-worker/CasesScreen';
+import CaseDetailScreen  from '../screens/health-worker/CaseDetailScreen';
+import CaseCreateScreen  from '../screens/health-worker/CaseCreateScreen';
+
+// Patients (shared: health_worker, facility_admin, superadmin)
+import PatientsScreen      from '../screens/patients/PatientsScreen';
+import PatientDetailScreen from '../screens/patients/PatientDetailScreen';
+import PatientCreateScreen from '../screens/patients/PatientCreateScreen';
 
 // Referrals (shared)
-import ReferralsScreen from '../screens/referrals/ReferralsScreen';
+import ReferralsScreen       from '../screens/referrals/ReferralsScreen';
+import ReferralDetailScreen  from '../screens/referrals/ReferralDetailScreen';
 
 // Specialist
-import ConsultationsScreen from '../screens/specialist/ConsultationsScreen';
+import ConsultationsScreen       from '../screens/consultations/ConsultationsScreen';
+import ConsultationDetailScreen  from '../screens/consultations/ConsultationDetailScreen';
 
 // Facility admin
 import FacilityScreen from '../screens/facility-admin/FacilityScreen';
 
 // Driver
-import TransportScreen from '../screens/driver/TransportScreen';
+import TransportScreen       from '../screens/transport/TransportScreen';
+import MyDispatchesScreen    from '../screens/driver/MyDispatchesScreen';
 
 // Superadmin
 import FacilitiesScreen from '../screens/superadmin/FacilitiesScreen';
 import UsersScreen      from '../screens/superadmin/UsersScreen';
+
+// Patient portal
+import PatientPortalScreen from '../screens/patient-portal/PatientPortalScreen';
+
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import AssistantWidget from '../components/ai/AssistantWidget';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -50,8 +66,9 @@ const NO_HEADER = { headerShown: false };
 // ─── Auth Stack ───────────────────────────────────────────────────────────────
 const AuthStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
-    <Stack.Screen name="Login"    component={LoginScreen} />
-    <Stack.Screen name="Register" component={RegisterScreen} />
+    <Stack.Screen name="Login"           component={LoginScreen} />
+    <Stack.Screen name="Register"        component={RegisterScreen} />
+    <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
   </Stack.Navigator>
 );
 
@@ -62,6 +79,35 @@ const CasesStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Cases"      component={CasesScreen} />
     <Stack.Screen name="CaseDetail" component={CaseDetailScreen} />
+    <Stack.Screen name="CaseCreate" component={CaseCreateScreen} />
+  </Stack.Navigator>
+);
+
+// ─── Patients Stack ──────────────────────────────────────────────────────────
+const PatientsStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="PatientsList"   component={PatientsScreen} />
+    <Stack.Screen name="PatientDetail"  component={PatientDetailScreen} />
+    <Stack.Screen name="PatientCreate"  component={PatientCreateScreen} />
+  </Stack.Navigator>
+);
+
+// ─── Referrals Stack ─────────────────────────────────────────────────────────
+const ReferralsStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="ReferralsList"  component={ReferralsScreen} />
+    <Stack.Screen name="ReferralDetail" component={ReferralDetailScreen} />
+    <Stack.Screen name="CaseDetail"     component={CaseDetailScreen} />
+  </Stack.Navigator>
+);
+
+// ─── Consultations Stack ─────────────────────────────────────────────────────
+const ConsultationsStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="ConsultationsList"   component={ConsultationsScreen} />
+    <Stack.Screen name="ConsultationDetail"  component={ConsultationDetailScreen} />
+    <Stack.Screen name="ReferralDetail"      component={ReferralDetailScreen} />
+    <Stack.Screen name="CaseDetail"          component={CaseDetailScreen} />
   </Stack.Navigator>
 );
 
@@ -97,13 +143,18 @@ const HealthWorkerTabs = () => (
       options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
     />
     <Tab.Screen
+      name="PatientsTab"
+      component={PatientsStack}
+      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
+    />
+    <Tab.Screen
       name="Referrals"
-      component={ReferralsScreen}
+      component={ReferralsStack}
       options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
     />
     <Tab.Screen
       name="Consultations"
-      component={ConsultationsScreen}
+      component={ConsultationsStack}
       options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
     />
     <Tab.Screen
@@ -129,12 +180,12 @@ const SpecialistTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
     <Tab.Screen
       name="Consultations"
-      component={ConsultationsScreen}
+      component={ConsultationsStack}
       options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
     />
     <Tab.Screen
       name="Referrals"
-      component={ReferralsScreen}
+      component={ReferralsStack}
       options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
     />
     <Tab.Screen
@@ -160,13 +211,18 @@ const FacilityAdminTabs = () => (
       options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
     />
     <Tab.Screen
+      name="PatientsTab"
+      component={PatientsStack}
+      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
+    />
+    <Tab.Screen
       name="Referrals"
-      component={ReferralsScreen}
+      component={ReferralsStack}
       options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
     />
     <Tab.Screen
       name="Consultations"
-      component={ConsultationsScreen}
+      component={ConsultationsStack}
       options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
     />
     <Tab.Screen
@@ -178,6 +234,11 @@ const FacilityAdminTabs = () => (
       name="Facility"
       component={FacilityScreen}
       options={{ title: 'Facility', tabBarIcon: icon('business-outline') }}
+    />
+    <Tab.Screen
+      name="Users"
+      component={UsersScreen}
+      options={{ title: 'Users', tabBarIcon: icon('people-circle-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
@@ -197,8 +258,8 @@ const DriverTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
     <Tab.Screen
       name="Transport"
-      component={TransportScreen}
-      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
+      component={MyDispatchesScreen}
+      options={{ title: 'Dispatches', tabBarIcon: icon('car-outline') }}
     />
     <Tab.Screen
       name="Dashboard"
@@ -219,6 +280,7 @@ const SuperadminStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Cases"      component={CasesScreen} />
     <Stack.Screen name="CaseDetail" component={CaseDetailScreen} />
+    <Stack.Screen name="CaseCreate" component={CaseCreateScreen} />
   </Stack.Navigator>
 );
 
@@ -230,13 +292,18 @@ const SuperadminTabs = () => (
       options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
     />
     <Tab.Screen
+      name="PatientsTab"
+      component={PatientsStack}
+      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
+    />
+    <Tab.Screen
       name="Referrals"
-      component={ReferralsScreen}
+      component={ReferralsStack}
       options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
     />
     <Tab.Screen
       name="Consultations"
-      component={ConsultationsScreen}
+      component={ConsultationsStack}
       options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
     />
     <Tab.Screen
@@ -267,9 +334,29 @@ const SuperadminTabs = () => (
   </Tab.Navigator>
 );
 
+// ─── Patient (portal user) ─────────────────────────────────────────────────────
+// NOTE: minimal placeholder — full patient portal (case history, reviews) is
+// being built in the next phase of this rewrite. This prevents a crash/wrong
+// permissions for role=patient in the meantime.
+const PatientTabs = () => (
+  <Tab.Navigator screenOptions={TAB_OPTIONS}>
+    <Tab.Screen
+      name="Portal"
+      component={PatientPortalScreen}
+      options={{ title: 'My Care', tabBarIcon: icon('heart-outline') }}
+    />
+    <Tab.Screen
+      name="Profile"
+      component={ProfileScreen}
+      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
+    />
+  </Tab.Navigator>
+);
+
 // ─── Root Navigator ───────────────────────────────────────────────────────────
 const RootNavigator = () => {
   const { isAuthenticated, userRole, loading } = useAuth();
+  usePushNotifications(isAuthenticated);
 
   if (loading) {
     return (
@@ -281,14 +368,21 @@ const RootNavigator = () => {
 
   if (!isAuthenticated) return <AuthStack />;
 
-  switch (userRole) {
-    case 'health_worker':  return <HealthWorkerTabs />;
-    case 'specialist':     return <SpecialistTabs />;
-    case 'facility_admin': return <FacilityAdminTabs />;
-    case 'driver':         return <DriverTabs />;
-    case 'superadmin':     return <SuperadminTabs />;
-    default:               return <HealthWorkerTabs />;
-  }
+  const RoleTabs = {
+    health_worker:  HealthWorkerTabs,
+    specialist:     SpecialistTabs,
+    facility_admin: FacilityAdminTabs,
+    driver:         DriverTabs,
+    superadmin:     SuperadminTabs,
+    patient:        PatientTabs,
+  }[userRole] || HealthWorkerTabs;
+
+  return (
+    <>
+      <RoleTabs />
+      <AssistantWidget />
+    </>
+  );
 };
 
 const styles = StyleSheet.create({

@@ -1,278 +1,150 @@
-/**
- * screens/shared/ProfileScreen.jsx
- * Original NeoMatCare profile UI — restored with edit/password modals from revamp.
- */
-import React, { useState } from 'react';
-import {
-  View, Text, TouchableOpacity, StyleSheet, Alert,
-  ScrollView, Modal, TextInput, ActivityIndicator,
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { authAPI, getErrorMessage } from '../../api/client';
+import { authApi, getErrorMessage } from '../../api/client';
+import { Input, Button, Card, Badge, Avatar } from '../../components/ui';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
-const ROLE_LABELS = {
-  health_worker:  'Health Worker',
-  facility_admin: 'Facility Admin',
-  specialist:     'Specialist',
-  driver:         'Driver',
-  superadmin:     'Superadmin',
-};
-
-const ROLE_COLORS = {
-  health_worker:  '#16a34a',
-  facility_admin: '#2563eb',
-  specialist:     '#7c3aed',
-  driver:         '#d97706',
-  superadmin:     '#dc2626',
-};
+const ROLE_LABELS = { health_worker: 'Health Worker', facility_admin: 'Facility Admin', specialist: 'Specialist', driver: 'Driver', superadmin: 'Superadmin', patient: 'Patient' };
+const ROLE_VARIANT = { health_worker: 'success', facility_admin: 'info', specialist: 'primary', driver: 'warning', superadmin: 'danger', patient: 'info' };
 
 export default function ProfileScreen() {
-  const { user, logout, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
+  const [profile, setProfile] = useState({ name: '', email: '' });
+  const [dirty, setDirty] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
 
-  const [showEdit,     setShowEdit]     = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [passwords, setPasswords] = useState({ current: '', new1: '', new2: '' });
+  const [savingPw, setSavingPw] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
-  const fullName = user?.name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'User';
-  const color    = ROLE_COLORS[user?.role] || '#64748b';
+  const [toast, setToast] = useState(null);
 
-  const handleLogout = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: logout },
-    ]);
+  useEffect(() => { if (user) setProfile({ name: user.name || '', email: user.email || '' }); }, [user]);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
-  return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Profile</Text>
+  const handleProfileChange = (k) => (v) => { setProfile((p) => ({ ...p, [k]: v })); setDirty(true); };
 
-      {/* Avatar */}
-      <View style={styles.avatarSection}>
-        <View style={[styles.avatar, { backgroundColor: color }]}>
-          <Text style={styles.avatarText}>{fullName[0]?.toUpperCase() || 'U'}</Text>
-        </View>
-        <Text style={styles.name}>{fullName}</Text>
-        <View style={[styles.roleBadge, { backgroundColor: color + '20' }]}>
-          <Text style={[styles.roleText, { color }]}>{ROLE_LABELS[user?.role]}</Text>
-        </View>
-      </View>
-
-      {/* Info */}
-      <View style={styles.section}>
-        <InfoRow label="Email"    value={user?.email} />
-        <InfoRow label="Phone"    value={user?.phone} />
-        <InfoRow label="Role"     value={ROLE_LABELS[user?.role]} />
-        {user?.facility_name && <InfoRow label="Facility" value={user.facility_name} />}
-      </View>
-
-      {/* Actions */}
-      <View style={styles.section}>
-        <TouchableOpacity style={styles.actionRow} onPress={() => setShowEdit(true)}>
-          <Text style={styles.actionText}>Edit Profile</Text>
-          <Text style={styles.actionChevron}>›</Text>
-        </TouchableOpacity>
-        <View style={styles.divider} />
-        <TouchableOpacity style={styles.actionRow} onPress={() => setShowPassword(true)}>
-          <Text style={styles.actionText}>Change Password</Text>
-          <Text style={styles.actionChevron}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Logout */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Sign Out</Text>
-      </TouchableOpacity>
-
-      <EditProfileModal
-        visible={showEdit}
-        user={user}
-        onClose={() => setShowEdit(false)}
-        onSaved={(updated) => { setShowEdit(false); updateUser(updated); }}
-      />
-      <ChangePasswordModal
-        visible={showPassword}
-        onClose={() => setShowPassword(false)}
-      />
-    </ScrollView>
-  );
-}
-
-// ── Edit Profile Modal ─────────────────────────────────────────────────────────
-function EditProfileModal({ visible, user, onClose, onSaved }) {
-  const [form, setForm] = useState({
-    first_name: user?.first_name || '',
-    last_name:  user?.last_name  || '',
-    email:      user?.email      || '',
-    phone:      user?.phone      || '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const set = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
-
-  const handleSave = async () => {
-    setLoading(true); setError('');
+  const handleSaveProfile = async () => {
+    if (!profile.name.trim()) return;
+    setSavingProfile(true);
     try {
-      const res = await authAPI.updateProfile(form);
-      onSaved(res.data);
+      const { data } = await authApi.updateMe({ name: profile.name.trim(), email: profile.email.trim() });
+      await updateUser(data);
+      setDirty(false);
+      showToast('Profile updated successfully');
     } catch (err) {
-      setError(getErrorMessage(err));
-    } finally { setLoading(false); }
+      showToast(getErrorMessage(err) || 'Failed to update profile.', 'error');
+    } finally { setSavingProfile(false); }
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Edit Profile</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
-        </View>
-        {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
-        <MField label="First Name" value={form.first_name} onChange={set('first_name')} placeholder="First name" />
-        <MField label="Last Name"  value={form.last_name}  onChange={set('last_name')}  placeholder="Last name" />
-        <MField label="Email"      value={form.email}      onChange={set('email')}      placeholder="email@example.com" keyboard="email-address" />
-        <MField label="Phone"      value={form.phone}      onChange={set('phone')}      placeholder="+233 XX XXX XXXX" keyboard="phone-pad" />
-        <View style={styles.btnRow}>
-          <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}>
-            <Text style={styles.outlineBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <View style={{ width: 12 }} />
-          <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Save Changes</Text>}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// ── Change Password Modal ──────────────────────────────────────────────────────
-function ChangePasswordModal({ visible, onClose }) {
-  const [form, setForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const [success, setSuccess] = useState(false);
-  const set = (f) => (v) => setForm(p => ({ ...p, [f]: v }));
-
-  const handleChange = async () => {
-    if (!form.old_password || !form.new_password || !form.confirm_password) {
-      setError('All fields are required.'); return;
-    }
-    if (form.new_password.length < 8) {
-      setError('New password must be at least 8 characters.'); return;
-    }
-    if (form.new_password !== form.confirm_password) {
-      setError('Passwords do not match.'); return;
-    }
-    setLoading(true); setError('');
+  const handleChangePassword = async () => {
+    if (passwords.new1 !== passwords.new2) { showToast('New passwords do not match.', 'error'); return; }
+    if (passwords.new1.length < 8) { showToast('Password must be at least 8 characters.', 'error'); return; }
+    setSavingPw(true);
     try {
-      await authAPI.changePassword({ old_password: form.old_password, new_password: form.new_password });
-      setSuccess(true);
-      setForm({ old_password: '', new_password: '', confirm_password: '' });
+      await authApi.changePassword({ current_password: passwords.current, new_password: passwords.new1, new_password2: passwords.new2 });
+      setPasswords({ current: '', new1: '', new2: '' });
+      showToast('Password changed successfully');
     } catch (err) {
-      setError(getErrorMessage(err));
-    } finally { setLoading(false); }
+      showToast(getErrorMessage(err) || 'Failed to change password.', 'error');
+    } finally { setSavingPw(false); }
   };
 
+  if (!user) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Change Password</Text>
-          <TouchableOpacity onPress={() => { setSuccess(false); onClose(); }}>
-            <Text style={styles.modalClose}>✕</Text>
-          </TouchableOpacity>
-        </View>
-        {success ? (
-          <View style={styles.successBox}>
-            <Text style={styles.successIcon}>✓</Text>
-            <Text style={styles.successText}>Password changed successfully!</Text>
-            <TouchableOpacity style={[styles.primaryBtn, { marginTop: 24 }]} onPress={() => { setSuccess(false); onClose(); }}>
-              <Text style={styles.primaryBtnText}>Close</Text>
-            </TouchableOpacity>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10] }} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>My Profile</Text>
+        <Text style={styles.subtitle}>Manage your account information and password</Text>
+
+        {!!toast && (
+          <View style={[styles.toast, toast.type === 'error' && styles.toastError]}>
+            <Ionicons name="checkmark-circle" size={16} color={Colors.white} />
+            <Text style={styles.toastText}>{toast.message}</Text>
           </View>
-        ) : (
-          <>
-            {error ? <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View> : null}
-            <MField label="Current Password" value={form.old_password}     onChange={set('old_password')}     placeholder="Current password"  secure />
-            <MField label="New Password"     value={form.new_password}     onChange={set('new_password')}     placeholder="Min. 8 characters" secure />
-            <MField label="Confirm Password" value={form.confirm_password} onChange={set('confirm_password')} placeholder="Re-enter password"  secure />
-            <View style={styles.btnRow}>
-              <TouchableOpacity style={[styles.outlineBtn, { flex: 1 }]} onPress={onClose}>
-                <Text style={styles.outlineBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <View style={{ width: 12 }} />
-              <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }, loading && { opacity: 0.6 }]} onPress={handleChange} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.primaryBtnText}>Change Password</Text>}
-              </TouchableOpacity>
-            </View>
-          </>
         )}
-      </View>
-    </Modal>
-  );
-}
 
-function InfoRow({ label, value }) {
-  if (!value) return null;
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
-  );
-}
+        <View style={styles.avatarCard}>
+          <Avatar name={user.name} size={64} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.avatarName}>{user.name}</Text>
+            <Text style={styles.avatarEmail}>{user.email}</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              <Badge label={ROLE_LABELS[user.role] || user.role} variant={ROLE_VARIANT[user.role]} />
+              {!!user.facility_name && <Badge label={`🏥 ${user.facility_name}`} variant="default" />}
+            </View>
+          </View>
+        </View>
 
-function MField({ label, value, onChange, placeholder, keyboard, secure }) {
-  return (
-    <>
-      <Text style={styles.mlabel}>{label}</Text>
-      <TextInput
-        style={styles.minput}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-        keyboardType={keyboard || 'default'}
-        secureTextEntry={secure}
-        autoCapitalize="none"
-      />
-    </>
+        <Card>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIcon, { backgroundColor: Colors.successLight }]}><Ionicons name="person" size={16} color={Colors.successDark} /></View>
+            <View>
+              <Text style={styles.sectionTitle}>Personal Information</Text>
+              <Text style={styles.sectionSub}>Update your name and email address</Text>
+            </View>
+          </View>
+
+          <Input label="Full Name" value={profile.name} onChangeText={handleProfileChange('name')} icon="person-outline" placeholder="Your full name" />
+          <Input label="Email Address" value={profile.email} onChangeText={handleProfileChange('email')} icon="mail-outline" placeholder="your@email.com" keyboardType="email-address" autoCapitalize="none" />
+          <Input label="Role" value={ROLE_LABELS[user.role] || user.role} editable={false} icon="shield-outline" />
+          <Text style={styles.helperText}>Role can only be changed by an administrator</Text>
+
+          <Button title="Save Changes" icon="save-outline" onPress={handleSaveProfile} loading={savingProfile} disabled={!dirty} fullWidth />
+        </Card>
+
+        <Card>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIcon, { backgroundColor: '#fff7ed' }]}><Ionicons name="key" size={16} color="#ea580c" /></View>
+            <View>
+              <Text style={styles.sectionTitle}>Change Password</Text>
+              <Text style={styles.sectionSub}>Choose a strong password with at least 8 characters</Text>
+            </View>
+          </View>
+
+          <Input label="Current Password" required value={passwords.current} onChangeText={(v) => setPasswords((p) => ({ ...p, current: v }))} secureTextEntry={!showPw} icon="key-outline" placeholder="Enter current password" />
+          <Input label="New Password" required value={passwords.new1} onChangeText={(v) => setPasswords((p) => ({ ...p, new1: v }))} secureTextEntry={!showPw} icon="key-outline" placeholder="Min. 8 characters" />
+          <Input label="Confirm New Password" required value={passwords.new2} onChangeText={(v) => setPasswords((p) => ({ ...p, new2: v }))} secureTextEntry={!showPw} icon="key-outline" placeholder="Repeat new password" />
+          <TouchableOpacity onPress={() => setShowPw((v) => !v)} style={styles.showPwRow}>
+            <Ionicons name={showPw ? 'eye-off-outline' : 'eye-outline'} size={14} color={Colors.gray400} />
+            <Text style={styles.showPwText}>{showPw ? 'Hide' : 'Show'} passwords</Text>
+          </TouchableOpacity>
+
+          <Button
+            title="Update Password" icon="key-outline" variant="secondary" onPress={handleChangePassword} loading={savingPw}
+            disabled={!passwords.current || !passwords.new1 || !passwords.new2} fullWidth
+          />
+        </Card>
+
+        <Button title="Log Out" icon="log-out-outline" variant="outline" onPress={logout} fullWidth style={{ marginTop: Spacing[2] }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#f8fafc', padding: 20 },
-  title:        { fontSize: 20, fontWeight: '700', color: '#0f172a', paddingTop: 48, marginBottom: 24 },
-  avatarSection:{ alignItems: 'center', marginBottom: 24 },
-  avatar:       { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  avatarText:   { color: '#fff', fontSize: 28, fontWeight: '700' },
-  name:         { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
-  roleBadge:    { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4 },
-  roleText:     { fontSize: 12, fontWeight: '700' },
-  section:      { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16 },
-  row:          { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  rowLabel:     { fontSize: 14, color: '#64748b', fontWeight: '600' },
-  rowValue:     { fontSize: 14, color: '#0f172a', maxWidth: '60%', textAlign: 'right' },
-  actionRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14 },
-  actionText:   { fontSize: 14, color: '#0f172a', fontWeight: '500' },
-  actionChevron:{ fontSize: 20, color: '#cbd5e1' },
-  divider:      { height: 1, backgroundColor: '#f1f5f9' },
-  logoutBtn:    { backgroundColor: '#fee2e2', borderRadius: 12, padding: 16, alignItems: 'center' },
-  logoutText:   { color: '#dc2626', fontWeight: '700', fontSize: 15 },
-  modal:        { flex: 1, backgroundColor: '#f8fafc', padding: 20, paddingTop: 0 },
-  modalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 56, marginBottom: 24 },
-  modalTitle:   { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  modalClose:   { fontSize: 22, color: '#64748b', padding: 4 },
-  mlabel:       { fontSize: 13, fontWeight: '600', color: '#374151', marginTop: 14, marginBottom: 6 },
-  minput:       { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#0f172a', backgroundColor: '#fff' },
-  errorBanner:  { backgroundColor: '#fee2e2', borderRadius: 8, padding: 12, marginBottom: 12 },
-  errorText:    { fontSize: 13, color: '#dc2626' },
-  btnRow:       { flexDirection: 'row', marginTop: 24 },
-  primaryBtn:   { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText:{ color: '#fff', fontWeight: '700', fontSize: 15 },
-  outlineBtn:   { borderWidth: 1.5, borderColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  outlineBtnText:{ color: '#16a34a', fontWeight: '700', fontSize: 15 },
-  successBox:   { alignItems: 'center', paddingTop: 40 },
-  successIcon:  { fontSize: 48, color: '#16a34a' },
-  successText:  { fontSize: 15, color: '#16a34a', fontWeight: '600', marginTop: 12, textAlign: 'center' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  title: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
+  subtitle: { fontSize: Typography.sm, color: Colors.gray400, marginTop: 2, marginBottom: Spacing[4] },
+  toast: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.successDark, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
+  toastError: { backgroundColor: Colors.dangerDark },
+  toastText: { color: Colors.white, fontSize: Typography.sm, fontWeight: Typography.medium },
+  avatarCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing[4], backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing[5], marginBottom: Spacing[3], ...Shadow.sm },
+  avatarName: { fontSize: Typography.lg, fontWeight: Typography.bold, color: Colors.textPrimary },
+  avatarEmail: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing[3], marginBottom: Spacing[4] },
+  sectionIcon: { width: 32, height: 32, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  sectionTitle: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  sectionSub: { fontSize: 10, color: Colors.gray400, marginTop: 1 },
+  helperText: { fontSize: 11, color: Colors.gray400, marginTop: -Spacing[2], marginBottom: Spacing[3] },
+  showPwRow: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end', marginTop: -Spacing[2], marginBottom: Spacing[3] },
+  showPwText: { fontSize: 11, color: Colors.gray400 },
 });

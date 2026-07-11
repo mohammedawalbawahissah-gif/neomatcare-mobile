@@ -1,21 +1,36 @@
+/**
+ * src/api/client.js
+ * Axios client for the NeoMatCare mobile app.
+ * Endpoint-for-endpoint parity with neomatcare-frontend/src/api/client.js
+ * and the Django backend URL configuration.
+ */
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/secureStorage';
 
 // ─── Base URL ──────────────────────────────────────────────────────────────────
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000/api';
+// Must be set at build time via EXPO_PUBLIC_API_URL (see eas.json build profiles).
+// Falls back to localhost for local dev only.
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 
-// ─── Axios instance ────────────────────────────────────────────────────────────
+// ─── Public client (no auth, no redirect/refresh handling) ───────────────────
+export const publicApi = axios.create({
+  baseURL: BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 20000,
+});
+
+// ─── Authenticated client ──────────────────────────────────────────────────────
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 15000,
+  timeout: 20000,
 });
 
-// ─── Request interceptor: inject JWT ──────────────────────────────────────────
 apiClient.interceptors.request.use(
   async (config) => {
     try {
-      const token = await AsyncStorage.getItem('access_token');
+      const token = await getAccessToken();
       if (token) config.headers.Authorization = `Bearer ${token}`;
     } catch (error) {
       console.error('Error reading token:', error);
@@ -25,124 +40,235 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ─── Response interceptor: handle 401 ─────────────────────────────────────────
+// ─── 401 handling: single-flight refresh, queue concurrent requests ──────────
 let _logoutCallback = null;
 export const setLogoutCallback = (cb) => { _logoutCallback = cb; };
+
+let isRefreshing = false;
+let queue = [];
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      await AsyncStorage.multiRemove(['access_token', 'refresh_token', 'user']);
-      if (_logoutCallback) _logoutCallback();
+    const original = error.config;
+
+    if (error.response?.status === 401 && original && !original._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          queue.push({ resolve, reject });
+        }).then((token) => {
+          original.headers.Authorization = `Bearer ${token}`;
+          return apiClient(original);
+        }).catch((err) => Promise.reject(err));
+      }
+
+      original._retry = true;
+      isRefreshing = true;
+      const refresh = await getRefreshToken();
+
+      if (!refresh) {
+        isRefreshing = false;
+        await clearTokens();
+        await AsyncStorage.removeItem('user');
+        if (_logoutCallback) _logoutCallback();
+        return Promise.reject(error);
+      }
+
+      try {
+        const { data } = await axios.post(`${BASE_URL}/api/auth/token/refresh/`, { refresh });
+        await setTokens(data.access, data.refresh);
+
+        queue.forEach(({ resolve }) => resolve(data.access));
+        queue = [];
+
+        original.headers.Authorization = `Bearer ${data.access}`;
+        return apiClient(original);
+      } catch (refreshError) {
+        queue.forEach(({ reject }) => reject(refreshError));
+        queue = [];
+        await clearTokens();
+        await AsyncStorage.removeItem('user');
+        if (_logoutCallback) _logoutCallback();
+        return Promise.reject(error);
+      } finally {
+        isRefreshing = false;
+      }
     }
+
     return Promise.reject(error);
   }
 );
 
-// ─── Helper: extract error message ────────────────────────────────────────────
+// ─── Helper: extract a readable error message from any API error ─────────────
 export const getErrorMessage = (error) => {
-  if (error.response?.data?.detail)  return error.response.data.detail;
+  if (error.response?.data?.detail) return error.response.data.detail;
   if (error.response?.data?.message) return error.response.data.message;
   if (error.response?.data) {
-    const firstKey = Object.keys(error.response.data)[0];
+    const data = error.response.data;
+    const firstKey = Object.keys(data)[0];
     if (firstKey) {
-      const val = error.response.data[firstKey];
-      return Array.isArray(val) ? val[0] : String(val);
+      const val = data[firstKey];
+      const text = Array.isArray(val) ? val[0] : val;
+      if (!['detail', 'message', 'non_field_errors'].includes(firstKey)) {
+        return `${firstKey.replace(/_/g, ' ')}: ${text}`;
+      }
+      return String(text);
     }
   }
+  if (error.message === 'Network Error') return 'Cannot reach the server. Check your connection.';
   if (error.message) return error.message;
   return 'Something went wrong. Please try again.';
 };
 
-// ─── Auth API ──────────────────────────────────────────────────────────────────
-export const authAPI = {
-  login:           (credentials) => apiClient.post('/auth/login/', credentials),
-  register:        (data)        => apiClient.post('/auth/register/', data),
-  logout:          ()            => apiClient.post('/auth/logout/'),
-  getProfile:      ()            => apiClient.get('/auth/profile/'),
-  updateProfile:   (data)        => apiClient.patch('/auth/profile/', data),
-  changePassword:  (data)        => apiClient.post('/auth/change-password/', data),
-  refreshToken:    (refresh)     => apiClient.post('/auth/token/refresh/', { refresh }),
+// ─── Auth ──────────────────────────────────────────────────────────────────────
+export const authApi = {
+  register:       (data)    => publicApi.post('/api/auth/register/', data),
+  verifyOtp:      (data)    => publicApi.post('/api/auth/verify-otp/', data),
+  resendOtp:      (data)    => publicApi.post('/api/auth/resend-otp/', data),
+  login:          (data)    => publicApi.post('/api/auth/login/', data),
+  refresh:        (refresh) => publicApi.post('/api/auth/token/refresh/', { refresh }),
+  logout:         (refresh) => apiClient.post('/api/auth/logout/', { refresh }),
+  me:             ()        => apiClient.get('/api/auth/me/'),
+  updateMe:       (data)    => apiClient.patch('/api/auth/me/', data),
+  changePassword: (data)    => apiClient.post('/api/auth/change-password/', data),
+  pushToken:      (token)   => apiClient.post('/api/auth/push-token/', { token }),
 };
 
-// ─── Cases API ────────────────────────────────────────────────────────────────
-export const casesAPI = {
-  getCases:      (params)     => apiClient.get('/cases/', { params }),
-  getCase:       (id)         => apiClient.get(`/cases/${id}/`),
-  createCase:    (data)       => apiClient.post('/cases/', data),
-  updateCase:    (id, data)   => apiClient.patch(`/cases/${id}/`, data),
-  deleteCase:    (id)         => apiClient.delete(`/cases/${id}/`),
-  // Vital signs — sends full JSONField dict { systolic_bp, diastolic_bp, heart_rate, respiratory_rate, temperature, spo2 }
-  addVitalSigns: (id, data)   => apiClient.post(`/cases/${id}/vital-signs/`, data),
-  // Triage note — sends { note: string }
-  addNote:       (id, data)   => apiClient.post(`/cases/${id}/notes/`, data),
+// ─── Users (admin user management — superadmin + facility_admin) ─────────────
+export const usersApi = {
+  list:   (params)   => apiClient.get('/api/auth/users/', { params }),
+  create: (data)     => apiClient.post('/api/auth/users/', data),
+  update: (id, data) => apiClient.patch(`/api/auth/users/${id}/`, data),
+  delete: (id)       => apiClient.delete(`/api/auth/users/${id}/`),
 };
 
-// ─── Referrals API ────────────────────────────────────────────────────────────
-export const referralsAPI = {
-  getReferrals:    (params)        => apiClient.get('/referrals/', { params }),
-  getReferral:     (id)            => apiClient.get(`/referrals/${id}/`),
-  createReferral:  (data)          => apiClient.post('/referrals/create/', data),
-  // AI engine — returns { recommended_facility, alternatives, engine_version }
-  suggest:         (caseId)        => apiClient.post('/referrals/suggest/', { emergency_case_id: caseId }),
-  updateReferral:  (id, data)      => apiClient.patch(`/referrals/${id}/`, data),
-  updateStatus:    (id, status, note) =>
-    apiClient.patch(`/referrals/${id}/status/`, { status, ...(note && { note }) }),
-  acceptReferral:  (id)            => apiClient.post(`/referrals/${id}/accept/`),
-  rejectReferral:  (id, data)      => apiClient.post(`/referrals/${id}/reject/`, data),
-  completeReferral:(id)            => apiClient.post(`/referrals/${id}/complete/`),
+// ─── Specialist search (used when creating a consultation) ───────────────────
+export const specialistSearchApi = {
+  search: (q) => apiClient.get('/api/auth/specialists/search/', { params: { q } }),
 };
 
-// ─── Consultations API ────────────────────────────────────────────────────────
-export const consultationsAPI = {
-  getConsultations:   (params)    => apiClient.get('/consultations/', { params }),
-  getConsultation:    (id)        => apiClient.get(`/consultations/${id}/`),
-  createConsultation: (data)      => apiClient.post('/consultations/', data),
-  updateConsultation: (id, data)  => apiClient.patch(`/consultations/${id}/`, data),
-  addNote:            (id, data)  => apiClient.post(`/consultations/${id}/notes/`, data),
+// ─── Patient portal (role = patient) ──────────────────────────────────────────
+export const patientPortalApi = {
+  me: () => apiClient.get('/api/auth/patient/me/'),
+  reviews: {
+    list:   ()     => apiClient.get('/api/auth/patient/reviews/'),
+    create: (data) => apiClient.post('/api/auth/patient/reviews/', data),
+  },
 };
 
-// ─── Facilities API ───────────────────────────────────────────────────────────
-export const facilitiesAPI = {
-  getFacilities:    (params)    => apiClient.get('/facilities/', { params }),
-  getFacility:      (id)        => apiClient.get(`/facilities/${id}/`),
-  createFacility:   (data)      => apiClient.post('/facilities/', data),
-  updateFacility:   (id, data)  => apiClient.patch(`/facilities/${id}/`, data),
-  deleteFacility:   (id)        => apiClient.delete(`/facilities/${id}/`),
-  getMyFacility:    ()          => apiClient.get('/facilities/my-facility/'),
-  updateMyFacility: (data)      => apiClient.patch('/facilities/my-facility/', data),
+// ─── Patients (persistent patient records — health_worker/facility_admin/superadmin) ─
+export const patientsApi = {
+  list:        (params)   => apiClient.get('/api/cases/patients/', { params }),
+  create:      (data)     => apiClient.post('/api/cases/patients/', data),
+  detail:      (id)       => apiClient.get(`/api/cases/patients/${id}/`),
+  update:      (id, data) => apiClient.patch(`/api/cases/patients/${id}/`, data),
+  delete:      (id)       => apiClient.delete(`/api/cases/patients/${id}/`),
+  cases:       (id)       => apiClient.get(`/api/cases/patients/${id}/cases/`),
+  computeRisk: (id)       => apiClient.post(`/api/cases/patients/${id}/compute-risk/`),
+  ancVisits: {
+    list:   (patientId)                => apiClient.get(`/api/cases/patients/${patientId}/anc-visits/`),
+    create: (patientId, data)          => apiClient.post(`/api/cases/patients/${patientId}/anc-visits/`, data),
+    update: (patientId, visitId, data) => apiClient.patch(`/api/cases/patients/${patientId}/anc-visits/${visitId}/`, data),
+    delete: (patientId, visitId)       => apiClient.delete(`/api/cases/patients/${patientId}/anc-visits/${visitId}/`),
+  },
+  consent: {
+    list:   (patientId)       => apiClient.get(`/api/cases/patients/${patientId}/consent/`),
+    record: (patientId, data) => apiClient.post(`/api/cases/patients/${patientId}/consent/`, data),
+  },
+  portal: {
+    grant:  (patientId, data) => apiClient.post(`/api/cases/patients/${patientId}/grant-portal/`, data),
+    revoke: (patientId)       => apiClient.post(`/api/cases/patients/${patientId}/revoke-portal/`),
+  },
 };
 
-// ─── Transport API ────────────────────────────────────────────────────────────
-export const transportAPI = {
-  // Transport requests
-  getTransports:         (params)    => apiClient.get('/transport/', { params }),
-  getTransport:          (id)        => apiClient.get(`/transport/${id}/`),
-  updateTransportStatus: (id, data)  => apiClient.patch(`/transport/${id}/`, data),
-  acceptTransport:       (id)        => apiClient.post(`/transport/${id}/accept/`),
-  startTransport:        (id)        => apiClient.post(`/transport/${id}/start/`),
-  completeTransport:     (id)        => apiClient.post(`/transport/${id}/complete/`),
-  // Vehicles
-  getAvailableVehicles:  ()          => apiClient.get('/transport/vehicles/', { params: { available: true } }),
-  // Transport requests (for referral assignment)
-  createTransportRequest:(data)      => apiClient.post('/transport/requests/', data),
+// ─── Cases (EmergencyCase) ─────────────────────────────────────────────────────
+export const casesApi = {
+  list:              ()         => apiClient.get('/api/cases/'),
+  create:            (data)     => apiClient.post('/api/cases/', data),
+  detail:            (id)       => apiClient.get(`/api/cases/${id}/`),
+  update:            (id, data) => apiClient.patch(`/api/cases/${id}/`, data),
+  triageNote:        (id, note) => apiClient.post(`/api/cases/${id}/triage-note/`, { note }),
+  suggestFacilities: (id)       => apiClient.get(`/api/cases/${id}/suggest-facilities/`),
 };
 
-// ─── Users API (superadmin) ───────────────────────────────────────────────────
-export const usersAPI = {
-  getUsers:        (params)    => apiClient.get('/users/', { params }),
-  getUser:         (id)        => apiClient.get(`/users/${id}/`),
-  createUser:      (data)      => apiClient.post('/users/', data),
-  updateUser:      (id, data)  => apiClient.patch(`/users/${id}/`, data),
-  deleteUser:      (id)        => apiClient.delete(`/users/${id}/`),
-  toggleUserActive:(id)        => apiClient.post(`/users/${id}/toggle-active/`),
+// ─── Referrals ─────────────────────────────────────────────────────────────────
+export const referralsApi = {
+  suggest:      (emergencyCaseId)       => apiClient.post('/api/referrals/suggest/', { emergency_case_id: emergencyCaseId }),
+  create:       (data)                  => apiClient.post('/api/referrals/create/', data),
+  list:         (params)                => apiClient.get('/api/referrals/', { params }),
+  detail:       (id)                    => apiClient.get(`/api/referrals/${id}/`),
+  updateStatus: (id, status, note = '') => apiClient.patch(`/api/referrals/${id}/status/`, { status, note }),
+  timeline:     (id)                    => apiClient.get(`/api/referrals/${id}/timeline/`),
+  outcome:      (id, data)              => apiClient.patch(`/api/referrals/${id}/outcome/`, data),
 };
 
-// ─── Dashboard API ────────────────────────────────────────────────────────────
-export const dashboardAPI = {
-  getStats:         () => apiClient.get('/dashboard/stats/'),
-  getRecentActivity:() => apiClient.get('/dashboard/activity/'),
+// ─── Consultations ─────────────────────────────────────────────────────────────
+export const consultationsApi = {
+  list:         (params)   => apiClient.get('/api/consultations/', { params }),
+  create:       (data)     => apiClient.post('/api/consultations/', data),
+  queue:        ()         => apiClient.get('/api/consultations/queue/'),
+  detail:       (id)       => apiClient.get(`/api/consultations/${id}/`),
+  updateStatus: (id, data) => apiClient.patch(`/api/consultations/${id}/status/`, data),
+  delete:       (id)       => apiClient.delete(`/api/consultations/${id}/`),
+  specialists: {
+    list:      (params)   => apiClient.get('/api/consultations/specialists/', { params }),
+    create:    (data)     => apiClient.post('/api/consultations/specialists/', data),
+    detail:    (id)       => apiClient.get(`/api/consultations/specialists/${id}/`),
+    update:    (id, data) => apiClient.patch(`/api/consultations/specialists/${id}/`, data),
+    available: ()         => apiClient.get('/api/consultations/specialists/', { params: { is_available: true } }),
+    schedules: (id)       => apiClient.get(`/api/consultations/specialists/${id}/schedules/`),
+  },
+  messages: {
+    list: (id)       => apiClient.get(`/api/consultations/${id}/messages/`),
+    send: (id, body) => apiClient.post(`/api/consultations/${id}/messages/`, { body }),
+  },
+};
+
+// ─── Facilities ────────────────────────────────────────────────────────────────
+export const facilitiesApi = {
+  list:            (params)   => publicApi.get('/api/facilities/', { params }),
+  create:          (data)     => apiClient.post('/api/facilities/', data),
+  detail:          (id)       => apiClient.get(`/api/facilities/${id}/`),
+  update:          (id, data) => apiClient.patch(`/api/facilities/${id}/`, data),
+  updateCapacity:  (id, data) => apiClient.patch(`/api/facilities/${id}/capacity/`, data),
+  capacityHistory: (id)       => apiClient.get(`/api/facilities/${id}/capacity-history/`),
+  delete:          (id)       => apiClient.delete(`/api/facilities/${id}/`),
+};
+
+// ─── Transport ─────────────────────────────────────────────────────────────────
+export const transportApi = {
+  vehicles: {
+    list:      (params)   => apiClient.get('/api/transport/vehicles/', { params }),
+    create:    (data)     => apiClient.post('/api/transport/vehicles/', data),
+    detail:    (id)       => apiClient.get(`/api/transport/vehicles/${id}/`),
+    update:    (id, data) => apiClient.patch(`/api/transport/vehicles/${id}/`, data),
+    delete:    (id)       => apiClient.delete(`/api/transport/vehicles/${id}/`),
+    available: (params)   => apiClient.get('/api/transport/vehicles/available/', { params }),
+  },
+  drivers: {
+    list:   (params)   => apiClient.get('/api/transport/drivers/', { params }),
+    create: (data)     => apiClient.post('/api/transport/drivers/', data),
+    update: (id, data) => apiClient.patch(`/api/transport/drivers/${id}/`, data),
+    detail: (id)       => apiClient.get(`/api/transport/drivers/${id}/`),
+  },
+  requests: {
+    list:         (params)   => apiClient.get('/api/transport/requests/', { params }),
+    create:       (data)     => apiClient.post('/api/transport/requests/', data),
+    mine:         ()         => apiClient.get('/api/transport/requests/'),
+    detail:       (id)       => apiClient.get(`/api/transport/requests/${id}/`),
+    updateStatus: (id, data) => apiClient.patch(`/api/transport/requests/${id}/status/`, data),
+  },
+};
+
+// ─── AI (triage extraction, risk narration, ANC anomaly, handover briefs, transport recs, chat) ─
+export const aiApi = {
+  triageExtract:       (note, caseId = null) => apiClient.post('/api/ai/triage-extract/', { note, case_id: caseId }),
+  riskNarrate:         (patientId)           => apiClient.post('/api/ai/risk-narrate/', { patient_id: patientId }),
+  ancAnomaly:          (patientId)           => apiClient.post('/api/ai/anc-anomaly/', { patient_id: patientId }),
+  referralHandover:    (params)              => apiClient.post('/api/ai/referral-handover/', params), // { referral_id } or { case_id }
+  transportRecommend:  (caseId, estimatedTravelMinutes, vehicles) =>
+    apiClient.post('/api/ai/transport-recommend/', { case_id: caseId, estimated_travel_minutes: estimatedTravelMinutes, vehicles }),
+  chat:                (messages, context = {}) => apiClient.post('/api/ai/chat/', { messages, context }),
 };
 
 export default apiClient;

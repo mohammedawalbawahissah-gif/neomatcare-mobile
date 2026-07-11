@@ -1,31 +1,32 @@
-/**
- * screens/auth/LoginScreen.jsx
- * Original NeoMatCare login UI — restored.
- */
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform,
-  ActivityIndicator, Alert, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { Input, Button, ErrorBanner } from '../../components/ui';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
+    setError('');
+    if (!email.trim() || !password) {
+      setError('Please enter your email and password.');
       return;
     }
     setLoading(true);
-    const result = await login({ email: email.trim().toLowerCase(), password });
+    const result = await login(email.trim().toLowerCase(), password);
     setLoading(false);
     if (!result.success) {
-      Alert.alert('Login failed', result.error || 'Invalid email or password.');
+      setError(result.error || 'Invalid email or password.');
     }
   };
 
@@ -39,53 +40,63 @@ export default function LoginScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
-          <View style={styles.logoRow}>
-            <View style={styles.logoDot} />
-            <Text style={styles.logoText}>NeoMatCare</Text>
+        <View style={styles.logoWrap}>
+          <View style={styles.logoBadge}>
+            <Ionicons name="heart" size={26} color={Colors.white} />
           </View>
+          <Text style={styles.brand}>NeoMatCare</Text>
           <Text style={styles.subtitle}>Emergency Referral System</Text>
+        </View>
 
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Sign in</Text>
+
+          <ErrorBanner message={error} onDismiss={() => setError('')} />
+
+          <Input
+            label="Email Address"
+            required
             value={email}
             onChangeText={setEmail}
-            placeholder="you@facility.org"
-            placeholderTextColor="#94a3b8"
+            placeholder="you@facility.gh"
             autoCapitalize="none"
+            autoCorrect={false}
             keyboardType="email-address"
+            icon="mail-outline"
             returnKeyType="next"
           />
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
+          <Input
+            label="Password"
+            required
             value={password}
             onChangeText={setPassword}
             placeholder="••••••••"
-            placeholderTextColor="#94a3b8"
             secureTextEntry
+            icon="lock-closed-outline"
             returnKeyType="done"
             onSubmitEditing={handleLogin}
           />
 
-          <TouchableOpacity
-            style={[styles.btn, loading && styles.btnDisabled]}
+          <Button
+            title="Sign In"
             onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.btnText}>Sign In</Text>
-            }
-          </TouchableOpacity>
+            loading={loading}
+            fullWidth
+            style={{ marginTop: Spacing[2] }}
+          />
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Don't have an account? </Text>
+          <Text style={styles.footerText}>New to NeoMatCare? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-            <Text style={styles.footerLink}>Create account</Text>
+            <Text style={styles.footerLink}>Create staff account</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Are you a patient? </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('PatientRegister')}>
+            <Text style={styles.footerLink}>Register for the patient portal</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -94,26 +105,20 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  scroll:    { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  container: { flex: 1, backgroundColor: Colors.gray900 },
+  scroll:    { flexGrow: 1, justifyContent: 'center', padding: Spacing[6] },
+  logoWrap:  { alignItems: 'center', marginBottom: Spacing[8] },
+  logoBadge: {
+    width: 56, height: 56, borderRadius: Radius.xl, backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center', marginBottom: Spacing[3], ...Shadow.lg,
+  },
+  brand:    { color: Colors.white, fontSize: Typography['2xl'], fontWeight: Typography.bold },
+  subtitle: { color: Colors.gray400, fontSize: Typography.sm, marginTop: 4 },
   card: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 28,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+    backgroundColor: Colors.white, borderRadius: Radius['2xl'], padding: Spacing[6], ...Shadow.lg,
   },
-  logoRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  logoDot:    { width: 10, height: 10, borderRadius: 5, backgroundColor: '#16a34a', marginRight: 8 },
-  logoText:   { fontSize: 22, fontWeight: '700', color: '#0f172a' },
-  subtitle:   { fontSize: 13, color: '#64748b', marginBottom: 28 },
-  label:      { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
-  input: {
-    borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, color: '#0f172a', marginBottom: 16,
-  },
-  btn:         { backgroundColor: '#16a34a', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  btnDisabled: { opacity: 0.6 },
-  btnText:     { color: '#fff', fontWeight: '700', fontSize: 15 },
-  footer:      { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
-  footerText:  { fontSize: 13, color: '#64748b' },
-  footerLink:  { fontSize: 13, color: '#16a34a', fontWeight: '600' },
+  cardTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary, marginBottom: Spacing[4] },
+  footer:     { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing[3], flexWrap: 'wrap' },
+  footerText: { fontSize: Typography.sm, color: Colors.gray400 },
+  footerLink: { fontSize: Typography.sm, color: Colors.primaryLight, fontWeight: Typography.semibold },
 });

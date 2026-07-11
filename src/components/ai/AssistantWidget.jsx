@@ -1,448 +1,228 @@
 /**
- * src/components/ai/AssistantWidget.jsx  (mobile — Expo / React Native)
+ * src/components/ai/AssistantWidget.jsx
+ * Floating, role-aware AI assistant widget for all NeoMatCare portals.
+ * Matches web's AssistantWidget.jsx. Mounted once, globally, in App.jsx.
  *
- * Floating role-aware AI assistant widget.
- * Renders as a FAB → bottom-sheet chat panel.
- *
- * Usage:
- *   Mount once inside each tab's root screen, OR mount globally in app/(tabs)/_layout.jsx
- *   using an overlay View with pointerEvents="box-none":
- *
- *   <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
- *     <AssistantWidget context={{ page: 'cases' }} />
- *   </View>
- *
- * Props:
- *   context {object} - Optional page-level context sent with every chat message
+ * RN adaptations from web:
+ * - No sessionStorage — open/closed + chat history reset on app relaunch
+ *   (acceptable; matches how most mobile chat widgets behave)
+ * - Fixed-position FAB + bottom-anchored panel instead of a floating box,
+ *   since RN has no fixed-position-with-margins-from-edges equivalent to CSS
  */
-
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, Animated, Keyboard, Platform, ActivityIndicator,
-  KeyboardAvoidingView, Pressable,
-} from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { useAuth } from '../../contexts/AuthContext'
-import { aiApi } from '../../api/ai'
+  View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet,
+  KeyboardAvoidingView, Platform, Modal,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../../contexts/AuthContext';
+import { aiApi, getErrorMessage } from '../../api/client';
+import { Spinner } from '../ui';
+import Colors from '../../constants/colors';
+import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
-// ── Role config ───────────────────────────────────────────────────────────────
 const ROLE_CONFIG = {
-  health_worker:  { label: 'Clinical Assistant',   color: '#207652', greeting: "Hi! I'm your clinical assistant. Ask me about danger signs, triage, referrals, or the platform." },
-  facility_admin: { label: 'Facility Assistant',   color: '#2563eb', greeting: "Hi! I can help with facility operations, capacity, and referral management." },
-  specialist:     { label: 'Specialist Assistant', color: '#7c3aed', greeting: "Hello. I can assist with case review, consultation notes, and clinical protocols." },
-  driver:         { label: 'Dispatch Assistant',   color: '#d97706', greeting: "Hi! I can help with dispatch info, transport protocols, and status updates." },
-  superadmin:     { label: 'Admin Assistant',      color: '#e43418', greeting: "Hello. I can assist with any NeoMatCare operation or administration." },
-  patient:        { label: 'Pregnancy Companion',  color: '#16a34a', greeting: "Hi there! 💚 I'm here to support your pregnancy journey. Ask me anything about your health or ANC visits." },
-}
-const DEFAULT_CONFIG = ROLE_CONFIG.health_worker
+  health_worker:  { label: 'Clinical Assistant',   color: Colors.primary,  greeting: "Hi! I'm your clinical assistant. Ask me about danger signs, triage, referrals, or how to use NeoMatCare." },
+  facility_admin: { label: 'Facility Assistant',   color: Colors.infoDark, greeting: 'Hi! I can help with facility operations, capacity management, referral patterns, and platform questions.' },
+  specialist:     { label: 'Specialist Assistant', color: '#7c3aed',       greeting: 'Hello. I can assist with case review, consultation notes, clinical protocols, and incoming referrals.' },
+  driver:         { label: 'Dispatch Assistant',   color: '#d97706',       greeting: 'Hi! I can help with dispatch information, patient transport protocols, and status updates.' },
+  superadmin:     { label: 'Admin Assistant',      color: Colors.dangerDark, greeting: 'Hello. I have full system context and can assist with any NeoMatCare operation, data, or administration.' },
+  patient:        { label: 'Pregnancy Companion',  color: Colors.primary,  greeting: "Hi there! 💚 I'm here to support you through your pregnancy journey. Ask me anything about your health, ANC visits, or what to expect." },
+};
+const DEFAULT_CONFIG = ROLE_CONFIG.health_worker;
 
-// ── Quick prompts per role ────────────────────────────────────────────────────
 const QUICK_PROMPTS = {
-  health_worker:  ['Signs of eclampsia?', 'How to escalate PPH?', 'Creating a referral'],
-  facility_admin: ['Update facility capacity', 'Referral status meanings', 'Add transport vehicle'],
-  specialist:     ['Review a referral', 'Update consultation status', 'Neonatal sepsis signs'],
-  driver:         ['I got a new dispatch', 'Update trip status', 'Patient unwell in transit'],
-  superadmin:     ['Manage users', 'Add new facility', 'Referral statuses explained'],
-  patient:        ['What to eat during pregnancy?', 'When to go to hospital?', 'Next ANC visit'],
+  health_worker:  ['What are signs of eclampsia?', 'When should I escalate a PPH case?', 'How do I create a referral?'],
+  facility_admin: ['How do I update facility capacity?', 'What referral statuses mean?', 'How do I add a transport vehicle?'],
+  specialist:     ['What should I review in a referral?', 'How do I update a consultation status?', 'Signs of neonatal sepsis?'],
+  driver:         ['I have a new dispatch, what should I do?', 'How do I update my trip status?', 'Patient seems unwell — what should I do?'],
+  superadmin:     ['Show me how to manage users', 'How do I add a new facility?', 'Explain referral statuses'],
+  patient:        ['What should I eat during pregnancy?', 'When should I go to the hospital immediately?', 'What happens at my next ANC visit?'],
+};
+
+// ── Simple markdown-ish line renderer (bold **text**, bullets) ────────────────
+function RenderMessage({ text, isUser }) {
+  const lines = text.split('\n');
+  return (
+    <View>
+      {lines.map((line, i) => {
+        if (!line.trim()) return <View key={i} style={{ height: 4 }} />;
+        const parts = line.split(/\*\*(.*?)\*\*/g);
+        const isBullet = line.trim().startsWith('- ') || line.trim().startsWith('• ');
+        return (
+          <View key={i} style={isBullet ? styles.bulletRow : undefined}>
+            {isBullet && <View style={styles.bulletDot} />}
+            <Text style={[styles.msgText, isUser && styles.msgTextUser]}>
+              {parts.map((p, j) => (j % 2 === 1 ? <Text key={j} style={styles.msgBold}>{p}</Text> : p))}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
 }
 
-// ── Message bubble ────────────────────────────────────────────────────────────
-const MessageBubble = React.memo(({ msg, accentColor }) => {
-  const isUser = msg.role === 'user'
-  return (
-    <View style={[styles.bubbleRow, isUser ? styles.bubbleRowUser : styles.bubbleRowAI]}>
-      {!isUser && (
-        <View style={[styles.avatar, { backgroundColor: accentColor }]}>
-          <Ionicons name="heart" size={12} color="#fff" />
-        </View>
-      )}
-      <View style={[
-        styles.bubble,
-        isUser ? [styles.bubbleUser, { backgroundColor: accentColor }] : styles.bubbleAI
-      ]}>
-        <Text style={[styles.bubbleText, isUser ? styles.bubbleTextUser : styles.bubbleTextAI]}>
-          {msg.content}
-        </Text>
-      </View>
-    </View>
-  )
-})
-
-// ── Main widget ───────────────────────────────────────────────────────────────
 export default function AssistantWidget({ context = {} }) {
-  const { user } = useAuth()
-  const role   = user?.role || 'health_worker'
-  const config = ROLE_CONFIG[role] || DEFAULT_CONFIG
-  const prompts = QUICK_PROMPTS[role] || QUICK_PROMPTS.health_worker
-  const insets  = useSafeAreaInsets()
+  const { role } = useAuth();
+  const insets = useSafeAreaInsets();
+  const config = ROLE_CONFIG[role] || DEFAULT_CONFIG;
+  const prompts = QUICK_PROMPTS[role] || QUICK_PROMPTS.health_worker;
 
-  const [open,    setOpen]    = useState(false)
-  const [messages, setMessages] = useState([
-    { role: 'assistant', content: config.greeting },
-  ])
-  const [input,   setInput]   = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
-
-  const listRef  = useRef(null)
-  const slideAnim = useRef(new Animated.Value(0)).current
-
-  // Animate panel in/out
-  useEffect(() => {
-    Animated.spring(slideAnim, {
-      toValue: open ? 1 : 0,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start()
-  }, [open])
-
-  const scrollToEnd = useCallback(() => {
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100)
-  }, [])
-
-  useEffect(() => { if (open) scrollToEnd() }, [messages, open])
+  const [open, setOpen]         = useState(false);
+  const [messages, setMessages] = useState([{ role: 'assistant', content: config.greeting }]);
+  const [input, setInput]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+  const scrollRef = useRef(null);
 
   const sendMessage = useCallback(async (text) => {
-    const content = (text || input).trim()
-    if (!content || loading) return
+    const content = (text || input).trim();
+    if (!content || loading) return;
 
-    const userMsg = { role: 'user', content }
-    const updated = [...messages, userMsg]
-    setMessages(updated)
-    setInput('')
-    setError('')
-    setLoading(true)
-    Keyboard.dismiss()
+    const updated = [...messages, { role: 'user', content }];
+    setMessages(updated);
+    setInput('');
+    setError('');
+    setLoading(true);
 
-    // Build API messages excluding the greeting
     const apiMessages = updated
       .filter((_, i) => !(i === 0 && updated[0].role === 'assistant'))
-      .map(m => ({ role: m.role, content: m.content }))
+      .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const { data } = await aiApi.chat(apiMessages, {
-        ...context,
-        user_role: role,
-        user_name: user?.name,
-      })
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+      const { data } = await aiApi.chat(apiMessages, context);
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err) {
-      const msg = err?.response?.data?.error || 'Could not reach AI assistant. Try again.'
-      setError(msg)
-      setMessages(prev => prev.slice(0, -1))
-      setInput(content)
-    } finally {
-      setLoading(false)
-    }
-  }, [input, messages, loading, context, role, user])
+      setError(getErrorMessage(err) || 'Could not reach the AI assistant. Please try again.');
+      setMessages((prev) => prev.slice(0, -1));
+      setInput(content);
+    } finally { setLoading(false); }
+  }, [input, messages, loading, context]);
 
   const clearChat = () => {
-    setMessages([{ role: 'assistant', content: config.greeting }])
-    setError('')
-    setInput('')
-  }
-
-  const panelTranslateY = slideAnim.interpolate({
-    inputRange:  [0, 1],
-    outputRange: [600, 0],
-  })
-
-  const fabBottom = insets.bottom + 16
+    setMessages([{ role: 'assistant', content: config.greeting }]);
+    setError(''); setInput('');
+  };
 
   return (
     <>
-      {/* ── Chat panel overlay ───────────────────────────────────────────── */}
-      {open && (
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => { setOpen(false); Keyboard.dismiss() }}
-        />
-      )}
-
-      <Animated.View
-        style={[
-          styles.panel,
-          {
-            bottom: fabBottom + 64,
-            transform: [{ translateY: panelTranslateY }],
-            opacity: slideAnim,
-          },
-        ]}
-        pointerEvents={open ? 'auto' : 'none'}
-      >
-        {/* Panel header */}
-        <View style={[styles.panelHeader, { backgroundColor: config.color }]}>
-          <View style={[styles.panelHeaderIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <Ionicons name="heart" size={16} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.panelTitle}>{config.label}</Text>
-          </View>
-          <TouchableOpacity onPress={clearChat} style={styles.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="refresh" size={16} color="rgba(255,255,255,0.8)" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setOpen(false)} style={styles.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="chevron-down" size={18} color="rgba(255,255,255,0.9)" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Messages */}
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(_, i) => String(i)}
-          renderItem={({ item }) => (
-            <MessageBubble msg={item} accentColor={config.color} />
-          )}
-          style={styles.messageList}
-          contentContainerStyle={styles.messageListContent}
-          onContentSizeChange={scrollToEnd}
-          showsVerticalScrollIndicator={false}
-          ListFooterComponent={
-            loading ? (
-              <View style={styles.typingRow}>
-                <View style={[styles.avatar, { backgroundColor: config.color }]}>
-                  <Ionicons name="heart" size={12} color="#fff" />
-                </View>
-                <View style={styles.typingBubble}>
-                  <ActivityIndicator size="small" color={config.color} />
-                </View>
-              </View>
-            ) : error ? (
-              <View style={styles.errorRow}>
-                <Ionicons name="alert-circle" size={14} color="#e43418" />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null
-          }
-        />
-
-        {/* Quick prompts */}
-        <View style={styles.quickPrompts}>
-          {prompts.map(p => (
-            <TouchableOpacity
-              key={p}
-              onPress={() => sendMessage(p)}
-              disabled={loading}
-              style={styles.quickChip}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickChipText}>{p}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Input */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.inputRow}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Ask anything…"
-              placeholderTextColor="#94a3b8"
-              style={styles.input}
-              multiline
-              maxLength={500}
-              editable={!loading}
-              onSubmitEditing={() => sendMessage()}
-              returnKeyType="send"
-              blurOnSubmit={false}
-            />
-            <TouchableOpacity
-              onPress={() => sendMessage()}
-              disabled={!input.trim() || loading}
-              style={[styles.sendBtn, { backgroundColor: config.color, opacity: (!input.trim() || loading) ? 0.4 : 1 }]}
-            >
-              <Ionicons name="send" size={15} color="#fff" />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.disclaimer}>AI may make mistakes. Always verify clinical decisions.</Text>
-        </KeyboardAvoidingView>
-      </Animated.View>
-
-      {/* ── FAB ─────────────────────────────────────────────────────────── */}
+      {/* FAB */}
       <TouchableOpacity
-        onPress={() => setOpen(o => !o)}
-        style={[styles.fab, { bottom: fabBottom, backgroundColor: config.color }]}
+        style={[styles.fab, { backgroundColor: config.color, bottom: insets.bottom + Spacing[5] }]}
+        onPress={() => setOpen(true)}
         activeOpacity={0.85}
       >
-        <Ionicons
-          name={open ? 'close' : 'sparkles'}
-          size={24}
-          color="#fff"
-        />
+        <Ionicons name="sparkles" size={24} color={Colors.white} />
       </TouchableOpacity>
+
+      {/* Chat panel */}
+      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
+        <View style={styles.backdrop}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setOpen(false)} />
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
+            {/* Header */}
+            <View style={[styles.header, { backgroundColor: config.color }]}>
+              <View style={styles.headerIcon}><Ionicons name="heart" size={16} color={Colors.white} /></View>
+              <Text style={styles.headerTitle}>{config.label}</Text>
+              <TouchableOpacity onPress={clearChat} style={styles.headerBtn}><Ionicons name="refresh" size={16} color="rgba(255,255,255,0.85)" /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setOpen(false)} style={styles.headerBtn}><Ionicons name="chevron-down" size={20} color="rgba(255,255,255,0.85)" /></TouchableOpacity>
+            </View>
+
+            {/* Messages */}
+            <ScrollView
+              ref={scrollRef}
+              style={styles.messagesArea}
+              contentContainerStyle={{ padding: Spacing[4] }}
+              onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            >
+              {messages.map((msg, i) => {
+                const isUser = msg.role === 'user';
+                return (
+                  <View key={i} style={[styles.msgRow, isUser && styles.msgRowUser]}>
+                    {!isUser && <View style={[styles.avatarDot, { backgroundColor: config.color }]}><Ionicons name="heart" size={10} color={Colors.white} /></View>}
+                    <View style={[styles.bubble, isUser ? { backgroundColor: config.color } : styles.bubbleAssistant]}>
+                      <RenderMessage text={msg.content} isUser={isUser} />
+                    </View>
+                  </View>
+                );
+              })}
+
+              {loading && (
+                <View style={styles.msgRow}>
+                  <View style={[styles.avatarDot, { backgroundColor: config.color }]}><Ionicons name="heart" size={10} color={Colors.white} /></View>
+                  <View style={styles.bubbleAssistant}><Spinner size="small" /></View>
+                </View>
+              )}
+
+              {!!error && (
+                <View style={styles.errorBox}><Ionicons name="alert-circle-outline" size={13} color={Colors.dangerDark} /><Text style={styles.errorText}>{error}</Text></View>
+              )}
+            </ScrollView>
+
+            {/* Quick prompts */}
+            {messages.length <= 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.promptsRow} contentContainerStyle={{ gap: 6, paddingHorizontal: Spacing[3] }}>
+                {prompts.map((p) => (
+                  <TouchableOpacity key={p} style={styles.promptChip} onPress={() => sendMessage(p)} disabled={loading}>
+                    <Text style={styles.promptChipText}>{p}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Input */}
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input} value={input} onChangeText={setInput}
+                placeholder="Ask anything…" placeholderTextColor={Colors.gray400}
+                multiline editable={!loading} onSubmitEditing={() => sendMessage()}
+              />
+              <TouchableOpacity
+                style={[styles.sendBtn, { backgroundColor: (!input.trim() || loading) ? Colors.gray100 : config.color }]}
+                onPress={() => sendMessage()} disabled={!input.trim() || loading}
+              >
+                {loading ? <Spinner size="small" color={Colors.gray400} /> : <Ionicons name="send" size={16} color={(!input.trim()) ? Colors.gray400 : Colors.white} />}
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.disclaimer}>AI may make mistakes. Always verify clinical decisions.</Text>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </>
-  )
+  );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const PANEL_WIDTH  = 340
-const PANEL_HEIGHT = 480
-
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    zIndex: 98,
-  },
-
-  panel: {
-    position:        'absolute',
-    right:           16,
-    width:           PANEL_WIDTH,
-    maxHeight:       PANEL_HEIGHT,
-    backgroundColor: '#fff',
-    borderRadius:    20,
-    shadowColor:     '#000',
-    shadowOffset:    { width: 0, height: 8 },
-    shadowOpacity:   0.18,
-    shadowRadius:    24,
-    elevation:       12,
-    zIndex:          99,
-    overflow:        'hidden',
-  },
-
-  panelHeader: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    paddingHorizontal: 16,
-    paddingVertical:   12,
-    gap: 10,
-  },
-  panelHeaderIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  panelTitle:    { color: '#fff', fontSize: 13, fontWeight: '700' },
-  headerBtn:     { padding: 4, marginLeft: 4 },
-
-  messageList:        { flex: 1 },
-  messageListContent: { padding: 12, paddingBottom: 4 },
-
-  bubbleRow:     { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-end' },
-  bubbleRowUser: { flexDirection: 'row-reverse' },
-  bubbleRowAI:   {},
-
-  avatar: {
-    width:         24,
-    height:        24,
-    borderRadius:  12,
-    alignItems:    'center',
-    justifyContent:'center',
-    marginHorizontal: 6,
-    marginBottom:  2,
-  },
-
-  bubble: {
-    maxWidth:     '78%',
-    paddingHorizontal: 12,
-    paddingVertical:    8,
-    borderRadius:  16,
-  },
-  bubbleUser:     { borderBottomRightRadius: 4 },
-  bubbleAI:       { backgroundColor: '#f1f5f9', borderBottomLeftRadius: 4 },
-  bubbleText:     { fontSize: 13, lineHeight: 19 },
-  bubbleTextUser: { color: '#fff' },
-  bubbleTextAI:   { color: '#1e293b' },
-
-  typingRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  8,
-    paddingLeft:   4,
-  },
-  typingBubble: {
-    backgroundColor: '#f1f5f9',
-    borderRadius:    14,
-    paddingHorizontal: 16,
-    paddingVertical:    10,
-    marginLeft: 6,
-  },
-
-  errorRow: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    gap:            6,
-    marginBottom:   8,
-    paddingHorizontal: 12,
-  },
-  errorText: { color: '#e43418', fontSize: 12, flex: 1 },
-
-  quickPrompts: {
-    flexDirection:  'row',
-    flexWrap:       'wrap',
-    gap:             6,
-    paddingHorizontal: 12,
-    paddingBottom:   8,
-  },
-  quickChip: {
-    backgroundColor: '#f1f5f9',
-    borderRadius:    20,
-    paddingHorizontal: 10,
-    paddingVertical:    5,
-  },
-  quickChipText: { fontSize: 11, color: '#475569', fontWeight: '500' },
-
-  inputRow: {
-    flexDirection:     'row',
-    alignItems:        'flex-end',
-    paddingHorizontal: 12,
-    paddingTop:        4,
-    gap:               8,
-    borderTopWidth:    1,
-    borderTopColor:    '#f1f5f9',
-  },
-  input: {
-    flex:              1,
-    backgroundColor:   '#f8fafc',
-    borderRadius:      12,
-    paddingHorizontal: 12,
-    paddingVertical:    8,
-    fontSize:          13,
-    color:             '#1e293b',
-    maxHeight:         80,
-    borderWidth:       1,
-    borderColor:       '#e2e8f0',
-  },
-  sendBtn: {
-    width:         36,
-    height:        36,
-    borderRadius:  18,
-    alignItems:    'center',
-    justifyContent:'center',
-    marginBottom:   2,
-  },
-
-  disclaimer: {
-    textAlign:   'center',
-    fontSize:    10,
-    color:       '#94a3b8',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-
   fab: {
-    position:      'absolute',
-    right:         20,
-    width:         54,
-    height:        54,
-    borderRadius:  27,
-    alignItems:    'center',
-    justifyContent:'center',
-    shadowColor:   '#000',
-    shadowOffset:  { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius:  12,
-    elevation:     8,
-    zIndex:        100,
+    position: 'absolute', right: Spacing[5], width: 56, height: 56, borderRadius: Radius.full,
+    alignItems: 'center', justifyContent: 'center', ...Shadow.lg, zIndex: 50,
   },
-})
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: Colors.white, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, height: '78%', overflow: 'hidden' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: Spacing[4], paddingVertical: Spacing[3] },
+  headerIcon: { width: 30, height: 30, borderRadius: Radius.md, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { flex: 1, color: Colors.white, fontSize: Typography.sm, fontWeight: Typography.semibold },
+  headerBtn: { padding: 6 },
+  messagesArea: { flex: 1 },
+  msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: Spacing[3] },
+  msgRowUser: { flexDirection: 'row-reverse' },
+  avatarDot: { width: 22, height: 22, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  bubble: { maxWidth: '80%', borderRadius: Radius.xl, paddingHorizontal: 12, paddingVertical: 9 },
+  bubbleAssistant: { backgroundColor: Colors.gray100, borderRadius: Radius.xl, paddingHorizontal: 12, paddingVertical: 9, maxWidth: '80%' },
+  msgText: { fontSize: Typography.sm, color: Colors.textPrimary, lineHeight: 19 },
+  msgTextUser: { color: Colors.white },
+  msgBold: { fontWeight: Typography.bold },
+  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  bulletDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: Colors.gray400, marginTop: 7 },
+  errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: Colors.dangerLight, borderRadius: Radius.md, padding: Spacing[3] },
+  errorText: { flex: 1, fontSize: Typography.xs, color: Colors.dangerDark },
+  promptsRow: { flexGrow: 0, marginBottom: Spacing[2] },
+  promptChip: { backgroundColor: Colors.gray100, borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 7 },
+  promptChipText: { fontSize: 11, color: Colors.textSecondary },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: Spacing[3], paddingBottom: Spacing[2] },
+  input: { flex: 1, backgroundColor: Colors.gray50, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10, fontSize: Typography.sm, maxHeight: 90, color: Colors.textPrimary },
+  sendBtn: { width: 38, height: 38, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  disclaimer: { textAlign: 'center', fontSize: 10, color: Colors.gray400, paddingBottom: Spacing[3] },
+});
