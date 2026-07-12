@@ -3,13 +3,14 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
-import { patientPortalApi, transportApi, getErrorMessage } from '../../api/client';
+import { patientPortalApi, transportApi, wellnessApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
 const TABS = [
   { id: 'pregnancy', label: 'Pregnancy', icon: 'body-outline' },
+  { id: 'cycle', label: 'Cycle', icon: 'water-outline' },
   { id: 'reviews', label: 'Reviews', icon: 'star-outline' },
   { id: 'oncall', label: 'On-Call', icon: 'call-outline' },
   { id: 'transport', label: 'Transport', icon: 'car-outline' },
@@ -38,6 +39,7 @@ export default function PatientPortalScreen() {
 
       <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10] }}>
         {tab === 'pregnancy' && <PregnancyTab />}
+        {tab === 'cycle' && <CycleTrackerTab />}
         {tab === 'reviews' && <ReviewsTab />}
         {tab === 'oncall' && <OnCallTab />}
         {tab === 'transport' && <TransportTab />}
@@ -89,6 +91,26 @@ const TRIMESTERS = [
 
 function PregnancyTab() {
   const [open, setOpen] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [granularity, setGranularity] = useState('weekly'); // daily | weekly | monthly
+
+  const load = useCallback(() => {
+    setLoading(true);
+    wellnessApi.myPregnancy()
+      .then(({ data }) => setSnapshot(data))
+      .catch(() => setSnapshot(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const GRAN_OPTIONS = [
+    { id: 'daily', label: 'Today' },
+    { id: 'weekly', label: 'This Week' },
+    { id: 'monthly', label: 'This Month' },
+  ];
+
   return (
     <View>
       <View style={styles.introBanner}>
@@ -98,6 +120,59 @@ function PregnancyTab() {
         </View>
         <Text style={styles.introBody}>Follow the care tips for each trimester and know when to seek urgent help. If you experience any danger signs, go to your nearest health facility or use the Transport tab to request a ride.</Text>
       </View>
+
+      {/* Personalized tracker — only shows if the patient has an EDD on file */}
+      {!loading && snapshot && (
+        <View style={styles.trackerCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Ionicons name="sparkles" size={16} color="#4338ca" />
+            <Text style={styles.trackerTitle}>Your Personalized Tracker</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: Spacing[5], marginBottom: 12, flexWrap: 'wrap' }}>
+            <View>
+              <Text style={styles.trackerStat}>Week {snapshot.current_week}</Text>
+              <Text style={styles.trackerStatLabel}>{snapshot.weekly_content.trimester_title}</Text>
+            </View>
+            <View>
+              <Text style={styles.trackerStat}>{snapshot.days_remaining}</Text>
+              <Text style={styles.trackerStatLabel}>days until due date</Text>
+            </View>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+            {GRAN_OPTIONS.map((g) => (
+              <TouchableOpacity key={g.id} onPress={() => setGranularity(g.id)}
+                style={[styles.granBtn, granularity === g.id && styles.granBtnActive]}>
+                <Text style={[styles.granBtnText, granularity === g.id && styles.granBtnTextActive]}>{g.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {granularity === 'daily' && (
+            <Text style={styles.trackerBody}>{snapshot.daily_focus.prompt}</Text>
+          )}
+          {granularity === 'weekly' && (
+            <View>
+              {!!snapshot.weekly_content.milestone && (
+                <Text style={styles.trackerMilestone}>{snapshot.weekly_content.milestone}</Text>
+              )}
+              {snapshot.weekly_content.tips.slice(0, 3).map((tip, i) => (
+                <Text key={i} style={styles.trackerBody}>• {tip}</Text>
+              ))}
+            </View>
+          )}
+          {granularity === 'monthly' && (
+            <Text style={styles.trackerBody}>Month {snapshot.current_month} — {snapshot.monthly_content.trimester_title}. Full guidance below.</Text>
+          )}
+        </View>
+      )}
+
+      {!loading && !snapshot && (
+        <View style={styles.trackerEmpty}>
+          <Text style={styles.trackerEmptyText}>Your personalized weekly tracker will appear here once your expected delivery date is recorded by your health worker.</Text>
+        </View>
+      )}
 
       {TRIMESTERS.map((t, i) => (
         <View key={i} style={[styles.trimesterCard, { borderColor: t.border }]}>
@@ -120,6 +195,101 @@ function PregnancyTab() {
           )}
         </View>
       ))}
+    </View>
+  );
+}
+
+// ─── 1b. Cycle Tracker ────────────────────────────────────────────────────────
+function CycleTrackerTab() {
+  const [entries, setEntries] = useState([]);
+  const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ period_start: '', period_end: '', notes: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([wellnessApi.listCycleEntries(), wellnessApi.cyclePrediction()])
+      .then(([e, p]) => {
+        setEntries(Array.isArray(e.data) ? e.data : (e.data.results || []));
+        setPrediction(p.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const handleSubmit = async () => {
+    setError('');
+    if (!form.period_start) { setError('Please enter the period start date.'); return; }
+    setSubmitting(true);
+    try {
+      await wellnessApi.addCycleEntry({
+        period_start: form.period_start,
+        period_end: form.period_end || null,
+        notes: form.notes,
+      });
+      setForm({ period_start: '', period_end: '', notes: '' });
+      load();
+    } catch (err) {
+      setError(getErrorMessage(err) || 'Could not save cycle entry.');
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <View>
+      <View style={styles.cycleBanner}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Ionicons name="water" size={18} color="#831843" />
+          <Text style={styles.cycleBannerTitle}>Cycle Tracker</Text>
+        </View>
+        <Text style={styles.cycleBannerBody}>Log your period dates to see predictions for your next cycle. This is a simple estimate based on your own history, not medical advice.</Text>
+      </View>
+
+      {!loading && prediction && (
+        <Card>
+          <Text style={styles.cardHeading}>Prediction</Text>
+          {prediction.has_prediction ? (
+            <View style={{ flexDirection: 'row', gap: Spacing[5], flexWrap: 'wrap' }}>
+              <View>
+                <Text style={styles.predictionStat}>{new Date(prediction.predicted_next_period_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
+                <Text style={styles.trackerStatLabel}>next period (est.)</Text>
+              </View>
+              <View>
+                <Text style={styles.predictionStat}>{prediction.avg_cycle_length_days} days</Text>
+                <Text style={styles.trackerStatLabel}>average cycle length</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>Log at least 2 periods to get a prediction ({prediction.entries_logged} logged so far).</Text>
+          )}
+        </Card>
+      )}
+
+      <Card>
+        <Text style={styles.cardHeading}>Log a period</Text>
+        <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <Input label="Start date" required value={form.period_start} onChangeText={(v) => setForm((f) => ({ ...f, period_start: v }))} placeholder="YYYY-MM-DD" icon="calendar-outline" />
+        <Input label="End date (optional)" value={form.period_end} onChangeText={(v) => setForm((f) => ({ ...f, period_end: v }))} placeholder="YYYY-MM-DD" icon="calendar-outline" />
+        <Input label="Notes (optional)" value={form.notes} onChangeText={(v) => setForm((f) => ({ ...f, notes: v }))} placeholder="Any symptoms or notes" />
+        <Button title="Log entry" icon="add" onPress={handleSubmit} loading={submitting} fullWidth />
+      </Card>
+
+      <Card>
+        <Text style={styles.cardHeading}>History</Text>
+        {entries.length === 0 && <Text style={styles.emptyText}>No entries logged yet.</Text>}
+        {entries.map((e) => (
+          <View key={e.id} style={styles.cycleHistoryRow}>
+            <Text style={styles.cycleHistoryDate}>
+              {new Date(e.period_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {e.period_end && ` – ${new Date(e.period_end).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
+            </Text>
+            {!!e.notes && <Text style={styles.cycleHistoryNotes}>{e.notes}</Text>}
+          </View>
+        ))}
+      </Card>
     </View>
   );
 }
@@ -461,6 +631,25 @@ const styles = StyleSheet.create({
   introBanner: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
   introTitle: { color: '#166534', fontSize: Typography.md, fontWeight: Typography.bold },
   introBody: { color: '#14532d', fontSize: Typography.sm },
+  trackerCard: { backgroundColor: '#eef2ff', borderWidth: 1.5, borderColor: '#a5b4fc', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
+  trackerTitle: { fontSize: Typography.sm, fontWeight: Typography.bold, color: '#3730a3' },
+  trackerStat: { fontSize: Typography.xl, fontWeight: Typography.bold, color: '#3730a3' },
+  trackerStatLabel: { fontSize: Typography.xs, color: '#4c1d95' },
+  trackerBody: { fontSize: Typography.sm, color: '#312e81', lineHeight: 20 },
+  trackerMilestone: { fontSize: Typography.sm, color: '#312e81', fontStyle: 'italic', marginBottom: 6 },
+  trackerEmpty: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderStyle: 'dashed', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
+  trackerEmptyText: { fontSize: Typography.sm, color: Colors.gray400, textAlign: 'center' },
+  granBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: Radius.md, backgroundColor: Colors.white },
+  granBtnActive: { backgroundColor: '#4338ca' },
+  granBtnText: { fontSize: Typography.xs, fontWeight: Typography.semibold, color: '#4338ca' },
+  granBtnTextActive: { color: Colors.white },
+  cycleBanner: { backgroundColor: '#fdf2f8', borderWidth: 1, borderColor: '#f9a8d4', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
+  cycleBannerTitle: { color: '#831843', fontSize: Typography.md, fontWeight: Typography.bold },
+  cycleBannerBody: { color: '#831843', fontSize: Typography.sm },
+  predictionStat: { fontSize: Typography.md, fontWeight: Typography.bold, color: '#831843' },
+  cycleHistoryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  cycleHistoryDate: { fontSize: Typography.sm, color: Colors.textSecondary },
+  cycleHistoryNotes: { fontSize: Typography.xs, color: Colors.gray400 },
   trimesterCard: { borderWidth: 1.5, borderRadius: Radius.lg, marginBottom: Spacing[3], overflow: 'hidden' },
   trimesterHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing[4] },
   trimesterTitle: { fontWeight: Typography.bold, fontSize: Typography.sm },

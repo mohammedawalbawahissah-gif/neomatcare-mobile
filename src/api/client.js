@@ -139,7 +139,7 @@ export const usersApi = {
   list:   (params)   => apiClient.get('/api/auth/users/', { params }),
   create: (data)     => apiClient.post('/api/auth/users/', data),
   update: (id, data) => apiClient.patch(`/api/auth/users/${id}/`, data),
-  delete: (id)       => apiClient.delete(`/api/auth/users/${id}/`),
+  delete: (id, params) => apiClient.delete(`/api/auth/users/${id}/`, { params }),
 };
 
 // ─── Specialist search (used when creating a consultation) ───────────────────
@@ -154,6 +154,14 @@ export const patientPortalApi = {
     list:   ()     => apiClient.get('/api/auth/patient/reviews/'),
     create: (data) => apiClient.post('/api/auth/patient/reviews/', data),
   },
+};
+
+// ─── Wellness (pregnancy tracker + cycle tracker) ─────────────────────────────
+export const wellnessApi = {
+  myPregnancy:      ()     => apiClient.get('/api/wellness/pregnancy/me/'),
+  listCycleEntries: ()     => apiClient.get('/api/wellness/cycle/'),
+  addCycleEntry:    (data) => apiClient.post('/api/wellness/cycle/', data),
+  cyclePrediction:  ()     => apiClient.get('/api/wellness/cycle/prediction/'),
 };
 
 // ─── Patients (persistent patient records — health_worker/facility_admin/superadmin) ─

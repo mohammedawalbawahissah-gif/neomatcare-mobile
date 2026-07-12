@@ -222,27 +222,38 @@ function UserFormModal({ visible, onClose, user, facilities, currentUser, onSave
 function DeleteUserModal({ visible, onClose, user, onDeleted }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
+  const [hardDelete, setHardDelete] = useState(false);
 
   const handleDelete = async () => {
     setDeleting(true); setError('');
     try {
-      await usersApi.delete(user.id);
+      await usersApi.delete(user.id, hardDelete ? { hard: true } : undefined);
       onDeleted(user.id);
     } catch (err) {
-      setError(getErrorMessage(err) || 'Failed to deactivate user. Please try again.');
+      setError(getErrorMessage(err) || `Failed to ${hardDelete ? 'delete' : 'deactivate'} user. Please try again.`);
       setDeleting(false);
     }
   };
 
   if (!user) return null;
   return (
-    <Modal visible={visible} onClose={onClose} title={`Deactivate ${user.name}?`}>
+    <Modal visible={visible} onClose={onClose} title={hardDelete ? `Permanently delete ${user.name}?` : `Deactivate ${user.name}?`}>
       <ErrorBanner message={error} onDismiss={() => setError('')} />
-      <Text style={styles.deleteBody}>The user will lose access immediately. Their clinical records will be preserved.</Text>
-      <Text style={styles.deleteBodySmall}>This can be undone by editing the user and setting their status back to Active.</Text>
+      {hardDelete ? (
+        <Text style={styles.deleteBody}>This removes the account row entirely. It fails safely if they created any emergency cases or triage notes — those clinical records can never be deleted out from under a case history.</Text>
+      ) : (
+        <Text style={styles.deleteBody}>The user will lose access immediately. Their clinical records will be preserved.</Text>
+      )}
+      <Text style={styles.deleteBodySmall}>{hardDelete ? 'This cannot be undone.' : 'This can be undone by editing the user and setting their status back to Active.'}</Text>
+
+      <TouchableOpacity style={styles.hardDeleteRow} onPress={() => setHardDelete((v) => !v)}>
+        <Ionicons name={hardDelete ? 'checkbox' : 'square-outline'} size={18} color={Colors.dangerDark} />
+        <Text style={styles.hardDeleteLabel}>Permanently delete instead of deactivating</Text>
+      </TouchableOpacity>
+
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
-        <Button title="Yes, Deactivate" variant="danger" onPress={handleDelete} loading={deleting} style={{ flex: 1 }} />
+        <Button title={hardDelete ? 'Yes, Permanently Delete' : 'Yes, Deactivate'} variant="danger" onPress={handleDelete} loading={deleting} style={{ flex: 1 }} />
       </View>
     </Modal>
   );
@@ -267,5 +278,7 @@ const styles = StyleSheet.create({
   iconBtnDanger: { backgroundColor: Colors.dangerLight },
   deleteBody: { fontSize: Typography.sm, color: Colors.textSecondary },
   deleteBodySmall: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 4, marginBottom: Spacing[2] },
+  hardDeleteRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing[2] },
+  hardDeleteLabel: { fontSize: Typography.xs, color: Colors.dangerDark, flex: 1 },
   modalActions: { flexDirection: 'row', gap: Spacing[2], marginTop: Spacing[3] },
 });
