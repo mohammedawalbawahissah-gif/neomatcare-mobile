@@ -92,109 +92,118 @@ const TRIMESTERS = [
 function PregnancyTab() {
   const [open, setOpen] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
+  const [reason, setReason] = useState(null); // 'no_patient_record' | 'no_edd' | null
   const [loading, setLoading] = useState(true);
-  const [granularity, setGranularity] = useState('weekly'); // daily | weekly | monthly
+  const [lmpInput, setLmpInput] = useState('');
+  const [submittingEdd, setSubmittingEdd] = useState(false);
+  const [showFullReference, setShowFullReference] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     wellnessApi.myPregnancy()
-      .then(({ data }) => setSnapshot(data))
-      .catch(() => setSnapshot(null))
+      .then(({ data }) => { setSnapshot(data); setReason(null); })
+      .catch((err) => {
+        setSnapshot(null);
+        setReason(err?.response?.data?.reason || 'no_edd');
+      })
       .finally(() => setLoading(false));
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const GRAN_OPTIONS = [
-    { id: 'daily', label: 'Today' },
-    { id: 'weekly', label: 'This Week' },
-    { id: 'monthly', label: 'This Month' },
-  ];
+  const handleSetEdd = async () => {
+    if (!lmpInput) return;
+    setSubmittingEdd(true);
+    try {
+      await wellnessApi.setEdd({ last_period_start: lmpInput });
+      load();
+    } finally { setSubmittingEdd(false); }
+  };
 
   return (
     <View>
       <View style={styles.introBanner}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Ionicons name="body" size={18} color="#166534" />
-          <Text style={styles.introTitle}>Pregnancy Care Guide</Text>
+          <Text style={styles.introTitle}>Pregnancy Tracker</Text>
         </View>
-        <Text style={styles.introBody}>Follow the care tips for each trimester and know when to seek urgent help. If you experience any danger signs, go to your nearest health facility or use the Transport tab to request a ride.</Text>
+        <Text style={styles.introBody}>Personalized nutrition, lifestyle, and danger-sign guidance for exactly where you are today. If you notice any danger sign below, go to your nearest health facility or use the Transport tab.</Text>
       </View>
 
-      {/* Personalized tracker — only shows if the patient has an EDD on file */}
-      {!loading && snapshot && (
-        <View style={styles.trackerCard}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Ionicons name="sparkles" size={16} color="#4338ca" />
-            <Text style={styles.trackerTitle}>Your Personalized Tracker</Text>
-          </View>
+      {loading && <Text style={styles.emptyText}>Loading…</Text>}
 
-          <View style={{ flexDirection: 'row', gap: Spacing[5], marginBottom: 12, flexWrap: 'wrap' }}>
-            <View>
-              <Text style={styles.trackerStat}>Week {snapshot.current_week}</Text>
-              <Text style={styles.trackerStatLabel}>{snapshot.weekly_content.trimester_title}</Text>
-            </View>
-            <View>
-              <Text style={styles.trackerStat}>{snapshot.days_remaining}</Text>
-              <Text style={styles.trackerStatLabel}>days until due date</Text>
-            </View>
-          </View>
-
-          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-            {GRAN_OPTIONS.map((g) => (
-              <TouchableOpacity key={g.id} onPress={() => setGranularity(g.id)}
-                style={[styles.granBtn, granularity === g.id && styles.granBtnActive]}>
-                <Text style={[styles.granBtnText, granularity === g.id && styles.granBtnTextActive]}>{g.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {granularity === 'daily' && (
-            <Text style={styles.trackerBody}>{snapshot.daily_focus.prompt}</Text>
-          )}
-          {granularity === 'weekly' && (
-            <View>
-              {!!snapshot.weekly_content.milestone && (
-                <Text style={styles.trackerMilestone}>{snapshot.weekly_content.milestone}</Text>
-              )}
-              {snapshot.weekly_content.tips.slice(0, 3).map((tip, i) => (
-                <Text key={i} style={styles.trackerBody}>• {tip}</Text>
-              ))}
-            </View>
-          )}
-          {granularity === 'monthly' && (
-            <Text style={styles.trackerBody}>Month {snapshot.current_month} — {snapshot.monthly_content.trimester_title}. Full guidance below.</Text>
-          )}
-        </View>
-      )}
-
-      {!loading && !snapshot && (
+      {!loading && !snapshot && reason === 'no_patient_record' && (
         <View style={styles.trackerEmpty}>
-          <Text style={styles.trackerEmptyText}>Your personalized weekly tracker will appear here once your expected delivery date is recorded by your health worker.</Text>
+          <Text style={styles.trackerEmptyText}>Your tracker will appear here once a health worker registers your patient record.</Text>
         </View>
       )}
 
-      {TRIMESTERS.map((t, i) => (
-        <View key={i} style={[styles.trimesterCard, { borderColor: t.border }]}>
-          <TouchableOpacity style={[styles.trimesterHeader, { backgroundColor: t.color }]} onPress={() => setOpen(open === i ? null : i)}>
-            <Text style={[styles.trimesterTitle, { color: t.accent }]}>{t.title}</Text>
-            <Ionicons name={open === i ? 'chevron-up' : 'chevron-down'} size={18} color={t.accent} />
-          </TouchableOpacity>
-          {open === i && (
-            <View style={{ padding: Spacing[4] }}>
-              <Text style={styles.tipsLabel}>Care Tips</Text>
-              {t.tips.map((tip, j) => <Text key={j} style={styles.tipText}>• {tip}</Text>)}
-              <View style={styles.dangerBox}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Ionicons name="warning" size={14} color={Colors.dangerDark} />
-                  <Text style={styles.dangerLabel}>Danger Signs — Seek Help Immediately</Text>
-                </View>
-                {t.danger.map((d, j) => <Text key={j} style={styles.dangerText}>• {d}</Text>)}
-              </View>
-            </View>
-          )}
+      {!loading && !snapshot && reason === 'no_edd' && (
+        <View style={styles.eddSetupCard}>
+          <Text style={styles.eddSetupTitle}>Let's set up your tracker</Text>
+          <Text style={styles.eddSetupBody}>Enter the start date of your last period and we'll estimate your due date and current week. This is your own estimate — your health worker's clinical date will always take priority once recorded.</Text>
+          <Input value={lmpInput} onChangeText={setLmpInput} placeholder="YYYY-MM-DD" icon="calendar-outline" />
+          <Button title={submittingEdd ? 'Saving…' : 'Set up tracker'} onPress={handleSetEdd} loading={submittingEdd} fullWidth />
         </View>
-      ))}
+      )}
+
+      {!loading && snapshot && (
+        <View>
+          {/* Today */}
+          <View style={styles.trackerCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={styles.trackerTitle}>Today — Week {snapshot.current_week}</Text>
+              <Text style={styles.trackerStatLabel}>{snapshot.days_remaining} days until due date</Text>
+            </View>
+            <Text style={styles.trackerBody}>🥗 <Text style={styles.trackerBodyBold}>Nutrition:</Text> {snapshot.daily_content.nutrition_tip}</Text>
+            <Text style={styles.trackerBody}>🧘 <Text style={styles.trackerBodyBold}>Lifestyle:</Text> {snapshot.daily_content.lifestyle_tip}</Text>
+            <Text style={[styles.trackerBody, { color: '#b91c1c' }]}>⚠️ <Text style={styles.trackerBodyBold}>Watch for:</Text> {snapshot.daily_content.danger_sign_reminder}</Text>
+          </View>
+
+          {/* This week */}
+          <Card>
+            <Text style={styles.cardHeading}>This Week</Text>
+            {!!snapshot.weekly_content.milestone && (
+              <Text style={styles.trackerMilestone}>{snapshot.weekly_content.milestone}</Text>
+            )}
+            <Text style={styles.tipsLabel}>Nutrition</Text>
+            {snapshot.weekly_content.nutrition.slice(0, 3).map((t, i) => <Text key={i} style={styles.tipText}>• {t}</Text>)}
+            <Text style={[styles.tipsLabel, { marginTop: 8 }]}>Lifestyle</Text>
+            {snapshot.weekly_content.lifestyle.slice(0, 3).map((t, i) => <Text key={i} style={styles.tipText}>• {t}</Text>)}
+          </Card>
+
+          {/* This month */}
+          <Card>
+            <Text style={styles.cardHeading}>This Month — Month {snapshot.current_month}</Text>
+            <Text style={styles.trackerBody}>
+              You're in your {snapshot.monthly_content.trimester_title.toLowerCase()}. Nutrition and lifestyle guidance stays consistent through the month — check the Trimester section below for the full list.
+            </Text>
+          </Card>
+
+          {/* Trimester full reference */}
+          <View style={[styles.trimesterCard, { borderColor: '#c7d2fe' }]}>
+            <TouchableOpacity style={styles.trimesterReferenceHeader} onPress={() => setShowFullReference((s) => !s)}>
+              <Text style={styles.trimesterReferenceTitle}>{snapshot.trimester_content.title} — Full Reference</Text>
+              <Ionicons name={showFullReference ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            {showFullReference && (
+              <View style={{ padding: Spacing[4], paddingTop: 0 }}>
+                <Text style={styles.tipsLabel}>All Nutrition Tips</Text>
+                {snapshot.trimester_content.nutrition.map((t, i) => <Text key={i} style={styles.tipText}>• {t}</Text>)}
+                <Text style={[styles.tipsLabel, { marginTop: 8 }]}>All Lifestyle Tips</Text>
+                {snapshot.trimester_content.lifestyle.map((t, i) => <Text key={i} style={styles.tipText}>• {t}</Text>)}
+                <View style={styles.dangerBox}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <Ionicons name="warning" size={14} color={Colors.dangerDark} />
+                    <Text style={styles.dangerLabel}>Danger Signs — Seek Help Immediately</Text>
+                  </View>
+                  {snapshot.trimester_content.danger_signs.map((d, i) => <Text key={i} style={styles.dangerText}>• {d}</Text>)}
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -212,7 +221,7 @@ function CycleTrackerTab() {
     setLoading(true);
     Promise.all([wellnessApi.listCycleEntries(), wellnessApi.cyclePrediction()])
       .then(([e, p]) => {
-        setEntries(Array.isArray(e.data) ? e.data : (e.data.results || []));
+        setEntries(e.data.results || e.data);
         setPrediction(p.data);
       })
       .catch(() => {})
@@ -250,20 +259,34 @@ function CycleTrackerTab() {
 
       {!loading && prediction && (
         <Card>
-          <Text style={styles.cardHeading}>Prediction</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={styles.cardHeading}>Prediction</Text>
+            {prediction.has_prediction && (
+              <View style={[styles.estimateBadge, { backgroundColor: prediction.is_estimated ? '#fef3c7' : '#dcfce7' }]}>
+                <Text style={[styles.estimateBadgeText, { color: prediction.is_estimated ? '#92400e' : '#166534' }]}>
+                  {prediction.is_estimated ? 'Estimated' : 'Personalized'}
+                </Text>
+              </View>
+            )}
+          </View>
           {prediction.has_prediction ? (
-            <View style={{ flexDirection: 'row', gap: Spacing[5], flexWrap: 'wrap' }}>
-              <View>
-                <Text style={styles.predictionStat}>{new Date(prediction.predicted_next_period_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
-                <Text style={styles.trackerStatLabel}>next period (est.)</Text>
+            <View>
+              <View style={{ flexDirection: 'row', gap: Spacing[5], flexWrap: 'wrap' }}>
+                <View>
+                  <Text style={styles.predictionStat}>{new Date(prediction.predicted_next_period_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
+                  <Text style={styles.trackerStatLabel}>next period (est.)</Text>
+                </View>
+                <View>
+                  <Text style={styles.predictionStat}>{prediction.avg_cycle_length_days} days</Text>
+                  <Text style={styles.trackerStatLabel}>{prediction.is_estimated ? 'typical cycle length assumed' : 'your average cycle length'}</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.predictionStat}>{prediction.avg_cycle_length_days} days</Text>
-                <Text style={styles.trackerStatLabel}>average cycle length</Text>
-              </View>
+              {prediction.is_estimated && (
+                <Text style={styles.estimateNote}>Based on a typical 28-day cycle — log one more period and we'll personalize this to your own pattern.</Text>
+              )}
             </View>
           ) : (
-            <Text style={styles.emptyText}>Log at least 2 periods to get a prediction ({prediction.entries_logged} logged so far).</Text>
+            <Text style={styles.emptyText}>Log your first period to get an estimate.</Text>
           )}
         </Card>
       )}
@@ -290,25 +313,6 @@ function CycleTrackerTab() {
           </View>
         ))}
       </Card>
-    </View>
-  );
-}
-
-// ─── 2. Reviews ───────────────────────────────────────────────────────────────
-const VISIT_TYPES = [
-  { value: 'anc', label: 'Antenatal Care (ANC)' }, { value: 'delivery', label: 'Delivery' },
-  { value: 'postnatal', label: 'Postnatal Visit' }, { value: 'emergency', label: 'Emergency Visit' },
-  { value: 'transport', label: 'Transport Service' }, { value: 'other', label: 'Other' },
-];
-
-function StarPicker({ value, onChange }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 6 }}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <TouchableOpacity key={n} onPress={() => onChange(n)}>
-          <Ionicons name={n <= value ? 'star' : 'star-outline'} size={26} color="#f59e0b" />
-        </TouchableOpacity>
-      ))}
     </View>
   );
 }
@@ -631,18 +635,6 @@ const styles = StyleSheet.create({
   introBanner: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
   introTitle: { color: '#166534', fontSize: Typography.md, fontWeight: Typography.bold },
   introBody: { color: '#14532d', fontSize: Typography.sm },
-  trackerCard: { backgroundColor: '#eef2ff', borderWidth: 1.5, borderColor: '#a5b4fc', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
-  trackerTitle: { fontSize: Typography.sm, fontWeight: Typography.bold, color: '#3730a3' },
-  trackerStat: { fontSize: Typography.xl, fontWeight: Typography.bold, color: '#3730a3' },
-  trackerStatLabel: { fontSize: Typography.xs, color: '#4c1d95' },
-  trackerBody: { fontSize: Typography.sm, color: '#312e81', lineHeight: 20 },
-  trackerMilestone: { fontSize: Typography.sm, color: '#312e81', fontStyle: 'italic', marginBottom: 6 },
-  trackerEmpty: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderStyle: 'dashed', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
-  trackerEmptyText: { fontSize: Typography.sm, color: Colors.gray400, textAlign: 'center' },
-  granBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: Radius.md, backgroundColor: Colors.white },
-  granBtnActive: { backgroundColor: '#4338ca' },
-  granBtnText: { fontSize: Typography.xs, fontWeight: Typography.semibold, color: '#4338ca' },
-  granBtnTextActive: { color: Colors.white },
   cycleBanner: { backgroundColor: '#fdf2f8', borderWidth: 1, borderColor: '#f9a8d4', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
   cycleBannerTitle: { color: '#831843', fontSize: Typography.md, fontWeight: Typography.bold },
   cycleBannerBody: { color: '#831843', fontSize: Typography.sm },
@@ -660,6 +652,20 @@ const styles = StyleSheet.create({
   dangerText: { fontSize: Typography.sm, color: '#7f1d1d', marginTop: 2 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing[3] },
   tabHeading: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
+  trackerBody: { fontSize: Typography.sm, color: '#166534', lineHeight: 20, marginBottom: 4 },
+  trackerBodyBold: { fontWeight: Typography.bold },
+  trackerMilestone: { fontSize: Typography.sm, color: Colors.textSecondary, fontStyle: 'italic', marginBottom: 6 },
+  trackerEmpty: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderStyle: 'dashed', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
+  trackerEmptyText: { fontSize: Typography.sm, color: Colors.gray400, textAlign: 'center' },
+  eddSetupCard: { backgroundColor: '#eef2ff', borderWidth: 1.5, borderColor: '#a5b4fc', borderRadius: Radius.lg, padding: Spacing[4], marginBottom: Spacing[3] },
+  eddSetupTitle: { fontSize: Typography.base, fontWeight: Typography.bold, color: '#3730a3', marginBottom: 6 },
+  eddSetupBody: { fontSize: Typography.sm, color: '#4338ca', marginBottom: Spacing[3], lineHeight: 19 },
+  trimesterReferenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing[4] },
+  trimesterReferenceTitle: { fontWeight: Typography.bold, fontSize: Typography.sm, color: Colors.textPrimary, flex: 1, marginRight: 8 },
+  estimateBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 999 },
+  estimateBadgeText: { fontSize: Typography.xs, fontWeight: Typography.semibold },
+  estimateNote: { fontSize: Typography.xs, color: Colors.gray400, fontStyle: 'italic', marginTop: 8 },
+  trackerStatLabel: { fontSize: Typography.xs, color: Colors.textSecondary },
   cardHeading: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary, marginBottom: Spacing[2] },
   cardSub: { fontSize: Typography.xs, color: Colors.gray400, marginBottom: Spacing[3] },
   successBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.successLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },

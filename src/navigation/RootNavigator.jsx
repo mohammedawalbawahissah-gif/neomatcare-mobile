@@ -1,16 +1,23 @@
 /**
  * navigation/RootNavigator.jsx
- * Fixed:
- *  - HealthWorker now has Consultations + Transport tabs
- *  - SuperAdmin has Cases + Referrals + Consultations + Transport + Users + Facilities
- *  - FacilityAdmin has Cases + Consultations + Transport
- *  - All tab screen names match navigation.navigate() call sites exactly
- *  - CasesStack exposes both "Cases" and "CaseDetail" so dashboard navigation works
+ * ------------------------------
+ * Every role's tab bar is now exactly 3 items: Menu, Home, Profile.
+ * Everything that used to be its own tab button (Cases, Patients,
+ * Referrals, Consultations, Transport, Facility, Users, Facilities,
+ * Dispatches) is now a grid card inside that role's MenuScreen, nested
+ * in the same Stack as before -- screen names are unchanged, so every
+ * existing navigation.navigate() call site that pointed at a nested
+ * screen (e.g. 'CasesTab' -> 'CaseDetail') still resolves via React
+ * Navigation's automatic upward bubbling. The only call sites that
+ * needed updating are in DashboardScreen, since Dashboard ("Home") is
+ * now a *sibling* of the Menu stack rather than a sibling of the
+ * individual feature stacks -- those now route through 'MenuTab' first.
  */
 import React from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator }   from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -23,6 +30,7 @@ import PatientRegisterScreen from '../screens/auth/PatientRegisterScreen';
 // Shared
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import ProfileScreen   from '../screens/shared/ProfileScreen';
+import MenuScreen       from '../screens/shared/MenuScreen';
 
 // Health worker
 import CasesScreen       from '../screens/health-worker/CasesScreen';
@@ -63,7 +71,7 @@ const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
 const NO_HEADER = { headerShown: false };
 
-// ─── Auth Stack ───────────────────────────────────────────────────────────────
+// --- Auth Stack ----------------------------------------------------------------
 const AuthStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Login"           component={LoginScreen} />
@@ -72,9 +80,7 @@ const AuthStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Cases Stack ─────────────────────────────────────────────────────────────
-// Wraps Cases list + CaseDetail so tab bar stays visible on list,
-// hides on detail. Screen name "Cases" must match navigation.navigate('Cases').
+// --- Cases Stack -----------------------------------------------------------------
 const CasesStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Cases"      component={CasesScreen} />
@@ -83,7 +89,7 @@ const CasesStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Patients Stack ──────────────────────────────────────────────────────────
+// --- Patients Stack --------------------------------------------------------------
 const PatientsStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="PatientsList"   component={PatientsScreen} />
@@ -92,7 +98,7 @@ const PatientsStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Referrals Stack ─────────────────────────────────────────────────────────
+// --- Referrals Stack ---------------------------------------------------------------
 const ReferralsStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="ReferralsList"  component={ReferralsScreen} />
@@ -101,7 +107,7 @@ const ReferralsStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Consultations Stack ─────────────────────────────────────────────────────
+// --- Consultations Stack -----------------------------------------------------------
 const ConsultationsStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="ConsultationsList"   component={ConsultationsScreen} />
@@ -111,7 +117,16 @@ const ConsultationsStack = () => (
   </Stack.Navigator>
 );
 
-// ─── Shared tab bar options ───────────────────────────────────────────────────
+// --- Superadmin Cases Stack (kept distinct, as before) ------------------------------
+const SuperadminCasesStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Cases"      component={CasesScreen} />
+    <Stack.Screen name="CaseDetail" component={CaseDetailScreen} />
+    <Stack.Screen name="CaseCreate" component={CaseCreateScreen} />
+  </Stack.Navigator>
+);
+
+// --- Shared tab bar options --------------------------------------------------------
 const TAB_OPTIONS = {
   headerShown: false,
   tabBarActiveTintColor:   '#16a34a',
@@ -133,227 +148,191 @@ const TAB_OPTIONS = {
 
 const icon = (name) => ({ color }) => <Ionicons name={name} size={22} color={color} />;
 
-// ─── Health Worker ─────────────────────────────────────────────────────────
-// Has: Cases, Referrals, Consultations, Transport, Home, Profile
+// --- Health Worker -----------------------------------------------------------------
+const HealthWorkerMenu = () => {
+  const nav = useNavigation();
+  return (
+    <MenuScreen
+      subtitle="Everything else, in one place"
+      items={[
+        { key: 'cases',         label: 'Cases',        icon: 'medical-outline',           color: '#dcfce7', iconColor: '#16a34a', onPress: () => nav.navigate('CasesTab') },
+        { key: 'patients',      label: 'Patients',     icon: 'people-outline',             color: '#dbeafe', iconColor: '#1d4ed8', onPress: () => nav.navigate('PatientsTab') },
+        { key: 'referrals',     label: 'Referrals',    icon: 'swap-horizontal-outline',    color: '#fef3c7', iconColor: '#d97706', onPress: () => nav.navigate('Referrals') },
+        { key: 'consultations', label: 'Consults',     icon: 'chatbubbles-outline',        color: '#ede9fe', iconColor: '#6d28d9', onPress: () => nav.navigate('Consultations') },
+        { key: 'transport',     label: 'Transport',    icon: 'car-outline',                color: '#ffe4e6', iconColor: '#be123c', onPress: () => nav.navigate('Transport') },
+      ]}
+    />
+  );
+};
+
+const HealthWorkerMenuStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Menu"          component={HealthWorkerMenu} />
+    <Stack.Screen name="CasesTab"      component={CasesStack} />
+    <Stack.Screen name="PatientsTab"   component={PatientsStack} />
+    <Stack.Screen name="Referrals"     component={ReferralsStack} />
+    <Stack.Screen name="Consultations" component={ConsultationsStack} />
+    <Stack.Screen name="Transport"     component={TransportScreen} />
+  </Stack.Navigator>
+);
+
 const HealthWorkerTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="CasesTab"
-      component={CasesStack}
-      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
-    />
-    <Tab.Screen
-      name="PatientsTab"
-      component={PatientsStack}
-      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
-    />
-    <Tab.Screen
-      name="Referrals"
-      component={ReferralsStack}
-      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
-    />
-    <Tab.Screen
-      name="Consultations"
-      component={ConsultationsStack}
-      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
-    />
-    <Tab.Screen
-      name="Transport"
-      component={TransportScreen}
-      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
-    />
-    <Tab.Screen
-      name="Dashboard"
-      component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="MenuTab"   component={HealthWorkerMenuStack} options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+    <Tab.Screen name="Dashboard" component={DashboardScreen}       options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}         options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Specialist ───────────────────────────────────────────────────────────────
+// --- Specialist ----------------------------------------------------------------------
+const SpecialistMenu = () => {
+  const nav = useNavigation();
+  return (
+    <MenuScreen
+      subtitle="Everything else, in one place"
+      items={[
+        { key: 'consultations', label: 'Consults',  icon: 'chatbubbles-outline',     color: '#ede9fe', iconColor: '#6d28d9', onPress: () => nav.navigate('Consultations') },
+        { key: 'referrals',     label: 'Referrals', icon: 'swap-horizontal-outline', color: '#fef3c7', iconColor: '#d97706', onPress: () => nav.navigate('Referrals') },
+      ]}
+    />
+  );
+};
+
+const SpecialistMenuStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Menu"          component={SpecialistMenu} />
+    <Stack.Screen name="Consultations" component={ConsultationsStack} />
+    <Stack.Screen name="Referrals"     component={ReferralsStack} />
+  </Stack.Navigator>
+);
+
 const SpecialistTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="Consultations"
-      component={ConsultationsStack}
-      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
-    />
-    <Tab.Screen
-      name="Referrals"
-      component={ReferralsStack}
-      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
-    />
-    <Tab.Screen
-      name="Dashboard"
-      component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="MenuTab"   component={SpecialistMenuStack} options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+    <Tab.Screen name="Dashboard" component={DashboardScreen}     options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}       options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Facility Admin ───────────────────────────────────────────────────────────
-// Has: Cases, Referrals, Consultations, Transport, Facility, Home, Profile
+// --- Facility Admin --------------------------------------------------------------------
+const FacilityAdminMenu = () => {
+  const nav = useNavigation();
+  return (
+    <MenuScreen
+      subtitle="Everything else, in one place"
+      items={[
+        { key: 'cases',         label: 'Cases',        icon: 'medical-outline',           color: '#dcfce7', iconColor: '#16a34a', onPress: () => nav.navigate('CasesTab') },
+        { key: 'patients',      label: 'Patients',     icon: 'people-outline',             color: '#dbeafe', iconColor: '#1d4ed8', onPress: () => nav.navigate('PatientsTab') },
+        { key: 'referrals',     label: 'Referrals',    icon: 'swap-horizontal-outline',    color: '#fef3c7', iconColor: '#d97706', onPress: () => nav.navigate('Referrals') },
+        { key: 'consultations', label: 'Consults',     icon: 'chatbubbles-outline',        color: '#ede9fe', iconColor: '#6d28d9', onPress: () => nav.navigate('Consultations') },
+        { key: 'transport',     label: 'Transport',    icon: 'car-outline',                color: '#ffe4e6', iconColor: '#be123c', onPress: () => nav.navigate('Transport') },
+        { key: 'facility',      label: 'Facility',     icon: 'business-outline',           color: '#e0f2fe', iconColor: '#0369a1', onPress: () => nav.navigate('Facility') },
+        { key: 'users',         label: 'Users',        icon: 'people-circle-outline',      color: '#f1f5f9', iconColor: '#475569', onPress: () => nav.navigate('Users') },
+      ]}
+    />
+  );
+};
+
+const FacilityAdminMenuStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Menu"          component={FacilityAdminMenu} />
+    <Stack.Screen name="CasesTab"      component={CasesStack} />
+    <Stack.Screen name="PatientsTab"   component={PatientsStack} />
+    <Stack.Screen name="Referrals"     component={ReferralsStack} />
+    <Stack.Screen name="Consultations" component={ConsultationsStack} />
+    <Stack.Screen name="Transport"     component={TransportScreen} />
+    <Stack.Screen name="Facility"      component={FacilityScreen} />
+    <Stack.Screen name="Users"         component={UsersScreen} />
+  </Stack.Navigator>
+);
+
 const FacilityAdminTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="CasesTab"
-      component={CasesStack}
-      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
-    />
-    <Tab.Screen
-      name="PatientsTab"
-      component={PatientsStack}
-      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
-    />
-    <Tab.Screen
-      name="Referrals"
-      component={ReferralsStack}
-      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
-    />
-    <Tab.Screen
-      name="Consultations"
-      component={ConsultationsStack}
-      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
-    />
-    <Tab.Screen
-      name="Transport"
-      component={TransportScreen}
-      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
-    />
-    <Tab.Screen
-      name="Facility"
-      component={FacilityScreen}
-      options={{ title: 'Facility', tabBarIcon: icon('business-outline') }}
-    />
-    <Tab.Screen
-      name="Users"
-      component={UsersScreen}
-      options={{ title: 'Users', tabBarIcon: icon('people-circle-outline') }}
-    />
-    <Tab.Screen
-      name="Dashboard"
-      component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="MenuTab"   component={FacilityAdminMenuStack} options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+    <Tab.Screen name="Dashboard" component={DashboardScreen}        options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}          options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Driver ───────────────────────────────────────────────────────────────────
+// --- Driver ------------------------------------------------------------------------------
+const DriverMenu = () => {
+  const nav = useNavigation();
+  return (
+    <MenuScreen
+      subtitle="Everything else, in one place"
+      items={[
+        { key: 'dispatches', label: 'Dispatches', icon: 'car-outline', color: '#ffe4e6', iconColor: '#be123c', onPress: () => nav.navigate('Transport') },
+      ]}
+    />
+  );
+};
+
+const DriverMenuStack = () => (
+  <Stack.Navigator screenOptions={NO_HEADER}>
+    <Stack.Screen name="Menu"      component={DriverMenu} />
+    <Stack.Screen name="Transport" component={MyDispatchesScreen} />
+  </Stack.Navigator>
+);
+
 const DriverTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="Transport"
-      component={MyDispatchesScreen}
-      options={{ title: 'Dispatches', tabBarIcon: icon('car-outline') }}
-    />
-    <Tab.Screen
-      name="Dashboard"
-      component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="MenuTab"   component={DriverMenuStack} options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+    <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}   options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Superadmin ───────────────────────────────────────────────────────────────
-// Has access to everything
-const SuperadminStack = () => (
+// --- Superadmin ------------------------------------------------------------------------
+const SuperadminMenu = () => {
+  const nav = useNavigation();
+  return (
+    <MenuScreen
+      subtitle="Everything else, in one place"
+      items={[
+        { key: 'cases',         label: 'Cases',        icon: 'medical-outline',           color: '#dcfce7', iconColor: '#16a34a', onPress: () => nav.navigate('CasesTab') },
+        { key: 'patients',      label: 'Patients',     icon: 'people-outline',             color: '#dbeafe', iconColor: '#1d4ed8', onPress: () => nav.navigate('PatientsTab') },
+        { key: 'referrals',     label: 'Referrals',    icon: 'swap-horizontal-outline',    color: '#fef3c7', iconColor: '#d97706', onPress: () => nav.navigate('Referrals') },
+        { key: 'consultations', label: 'Consults',     icon: 'chatbubbles-outline',        color: '#ede9fe', iconColor: '#6d28d9', onPress: () => nav.navigate('Consultations') },
+        { key: 'transport',     label: 'Transport',    icon: 'car-outline',                color: '#ffe4e6', iconColor: '#be123c', onPress: () => nav.navigate('Transport') },
+        { key: 'facilities',    label: 'Facilities',   icon: 'business-outline',           color: '#e0f2fe', iconColor: '#0369a1', onPress: () => nav.navigate('Facilities') },
+        { key: 'users',         label: 'Users',        icon: 'people-circle-outline',      color: '#f1f5f9', iconColor: '#475569', onPress: () => nav.navigate('Users') },
+      ]}
+    />
+  );
+};
+
+const SuperadminMenuStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
-    <Stack.Screen name="Cases"      component={CasesScreen} />
-    <Stack.Screen name="CaseDetail" component={CaseDetailScreen} />
-    <Stack.Screen name="CaseCreate" component={CaseCreateScreen} />
+    <Stack.Screen name="Menu"          component={SuperadminMenu} />
+    <Stack.Screen name="CasesTab"      component={SuperadminCasesStack} />
+    <Stack.Screen name="PatientsTab"   component={PatientsStack} />
+    <Stack.Screen name="Referrals"     component={ReferralsStack} />
+    <Stack.Screen name="Consultations" component={ConsultationsStack} />
+    <Stack.Screen name="Transport"     component={TransportScreen} />
+    <Stack.Screen name="Facilities"    component={FacilitiesScreen} />
+    <Stack.Screen name="Users"         component={UsersScreen} />
   </Stack.Navigator>
 );
 
 const SuperadminTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="CasesTab"
-      component={SuperadminStack}
-      options={{ title: 'Cases', tabBarIcon: icon('medical-outline') }}
-    />
-    <Tab.Screen
-      name="PatientsTab"
-      component={PatientsStack}
-      options={{ title: 'Patients', tabBarIcon: icon('people-outline') }}
-    />
-    <Tab.Screen
-      name="Referrals"
-      component={ReferralsStack}
-      options={{ title: 'Referrals', tabBarIcon: icon('swap-horizontal-outline') }}
-    />
-    <Tab.Screen
-      name="Consultations"
-      component={ConsultationsStack}
-      options={{ title: 'Consults', tabBarIcon: icon('chatbubbles-outline') }}
-    />
-    <Tab.Screen
-      name="Transport"
-      component={TransportScreen}
-      options={{ title: 'Transport', tabBarIcon: icon('car-outline') }}
-    />
-    <Tab.Screen
-      name="Facilities"
-      component={FacilitiesScreen}
-      options={{ title: 'Facilities', tabBarIcon: icon('business-outline') }}
-    />
-    <Tab.Screen
-      name="Users"
-      component={UsersScreen}
-      options={{ title: 'Users', tabBarIcon: icon('people-outline') }}
-    />
-    <Tab.Screen
-      name="Dashboard"
-      component={DashboardScreen}
-      options={{ title: 'Home', tabBarIcon: icon('home-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="MenuTab"   component={SuperadminMenuStack} options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+    <Tab.Screen name="Dashboard" component={DashboardScreen}     options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}       options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Patient (portal user) ─────────────────────────────────────────────────────
-// NOTE: minimal placeholder — full patient portal (case history, reviews) is
-// being built in the next phase of this rewrite. This prevents a crash/wrong
-// permissions for role=patient in the meantime.
+// --- Patient (portal user) ---------------------------------------------------------------
+// Only ever had 2 items (Portal + Profile) -- already compact, no Menu needed.
+// "Portal" (pregnancy/cycle tracker etc.) is promoted to the Home slot.
 const PatientTabs = () => (
   <Tab.Navigator screenOptions={TAB_OPTIONS}>
-    <Tab.Screen
-      name="Portal"
-      component={PatientPortalScreen}
-      options={{ title: 'My Care', tabBarIcon: icon('heart-outline') }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Profile', tabBarIcon: icon('person-outline') }}
-    />
+    <Tab.Screen name="Dashboard" component={PatientPortalScreen} options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+    <Tab.Screen name="Profile"   component={ProfileScreen}       options={{ title: 'Profile', tabBarIcon: icon('person-outline') }} />
   </Tab.Navigator>
 );
 
-// ─── Root Navigator ───────────────────────────────────────────────────────────
+// --- Root Navigator ------------------------------------------------------------------------
 const RootNavigator = () => {
   const { isAuthenticated, userRole, loading } = useAuth();
   usePushNotifications(isAuthenticated);

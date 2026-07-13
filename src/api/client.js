@@ -12,19 +12,21 @@ import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../util
 // Must be set at build time via EXPO_PUBLIC_API_URL (see eas.json build profiles).
 // Falls back to localhost for local dev only.
 export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+// eslint-disable-next-line no-console
+console.log('[NeoMatCare] API BASE_URL resolved to:', BASE_URL);
 
 // ─── Public client (no auth, no redirect/refresh handling) ───────────────────
 export const publicApi = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 20000,
+  timeout: 60000, // Render free tier cold starts can take 30-60s; give it room
 });
 
 // ─── Authenticated client ──────────────────────────────────────────────────────
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 20000,
+  timeout: 60000, // Render free tier cold starts can take 30-60s; give it room
 });
 
 apiClient.interceptors.request.use(
@@ -115,6 +117,7 @@ export const getErrorMessage = (error) => {
       return String(text);
     }
   }
+  if (error.code === 'ECONNABORTED') return 'The server is waking up (this can take up to a minute on first use) — please try again.';
   if (error.message === 'Network Error') return 'Cannot reach the server. Check your connection.';
   if (error.message) return error.message;
   return 'Something went wrong. Please try again.';
@@ -159,6 +162,7 @@ export const patientPortalApi = {
 // ─── Wellness (pregnancy tracker + cycle tracker) ─────────────────────────────
 export const wellnessApi = {
   myPregnancy:      ()     => apiClient.get('/api/wellness/pregnancy/me/'),
+  setEdd:           (data) => apiClient.post('/api/wellness/pregnancy/set-edd/', data),
   listCycleEntries: ()     => apiClient.get('/api/wellness/cycle/'),
   addCycleEntry:    (data) => apiClient.post('/api/wellness/cycle/', data),
   cyclePrediction:  ()     => apiClient.get('/api/wellness/cycle/prediction/'),

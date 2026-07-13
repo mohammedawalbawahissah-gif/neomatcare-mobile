@@ -90,9 +90,9 @@ function HealthWorkerDashboard({ navigation }) {
         <StatCard label="Follow-ups Due" value={followUps.length} icon="calendar-outline" color={overdueCount > 0 ? Colors.dangerDark : Colors.primary} />
       </View>
 
-      <SectionCard title="Recent Cases" onViewAll={() => navigation.navigate('CasesTab')}>
+      <SectionCard title="Recent Cases" onViewAll={() => navigation.navigate('MenuTab', { screen: 'CasesTab' })}>
         {cases.length === 0 ? <Text style={styles.emptyText}>No cases yet</Text> : cases.slice(0, 5).map((c) => (
-          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('CasesTab', { screen: 'CaseDetail', params: { id: c.id } })}>
+          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'CasesTab', params: { screen: 'CaseDetail', params: { id: c.id } } })}>
             <View style={styles.rowIcon}><Ionicons name="alert-circle" size={16} color={Colors.dangerDark} /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{c.patient_name || 'Patient'} · {c.patient_age}y</Text>
@@ -103,9 +103,9 @@ function HealthWorkerDashboard({ navigation }) {
         ))}
       </SectionCard>
 
-      <SectionCard title="Active Referrals" onViewAll={() => navigation.navigate('Referrals')}>
+      <SectionCard title="Active Referrals" onViewAll={() => navigation.navigate('MenuTab', { screen: 'Referrals' })}>
         {active.length === 0 ? <Text style={styles.emptyText}>No active referrals</Text> : active.slice(0, 5).map((r) => (
-          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('Referrals', { screen: 'ReferralDetail', params: { id: r.id } })}>
+          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'Referrals', params: { screen: 'ReferralDetail', params: { id: r.id } } })}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>{r.receiving_facility_name}</Text>
               <Text style={styles.rowMeta}>From {r.referring_facility_name}</Text>
@@ -204,7 +204,7 @@ function SpecialistDashboard({ navigation }) {
 
       <SectionCard title="Active Requests">
         {queue.length === 0 ? <EmptyState icon="checkmark-circle-outline" title="Queue is clear" /> : queue.map((c) => (
-          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('Consultations', { screen: 'ConsultationDetail', params: { id: c.id } })}>
+          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'Consultations', params: { screen: 'ConsultationDetail', params: { id: c.id } } })}>
             <View style={[styles.rowIcon, { backgroundColor: '#f3e8ff' }]}><Ionicons name="videocam" size={16} color="#7c3aed" /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>Consultation request</Text>
@@ -244,7 +244,7 @@ function DriverDashboard({ navigation }) {
 
       <SectionCard title="Active Assignments">
         {active.length === 0 ? <Text style={styles.emptyText}>No active assignments</Text> : active.map((r) => (
-          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('Transport')}>
+          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'Transport' })}>
             <View style={[styles.rowIcon, { backgroundColor: '#fffbeb' }]}><Ionicons name="car" size={16} color={Colors.warningDark} /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{r.vehicle_registration || 'Vehicle TBD'}</Text>
@@ -283,9 +283,9 @@ function FacilityAdminDashboard({ navigation }) {
         <StatCard label="Total" value={referrals.length} icon="swap-horizontal-outline" />
       </View>
 
-      <SectionCard title="Pending Referrals" onViewAll={() => navigation.navigate('Referrals')}>
+      <SectionCard title="Pending Referrals" onViewAll={() => navigation.navigate('MenuTab', { screen: 'Referrals' })}>
         {incoming.length === 0 ? <Text style={styles.emptyText}>No pending referrals</Text> : incoming.slice(0, 8).map((r) => (
-          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('Referrals', { screen: 'ReferralDetail', params: { id: r.id } })}>
+          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'Referrals', params: { screen: 'ReferralDetail', params: { id: r.id } } })}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>From {r.referring_facility_name}</Text>
               <Text style={styles.rowMeta}>{timeAgo(r.created_at)}</Text>
@@ -328,9 +328,9 @@ function SuperadminDashboard({ navigation }) {
         <StatCard label="Completed" value={referrals.filter((r) => r.status === 'COMPLETED').length} icon="checkmark-circle-outline" />
       </View>
 
-      <SectionCard title="Recent Cases" onViewAll={() => navigation.navigate('CasesTab')}>
+      <SectionCard title="Recent Cases" onViewAll={() => navigation.navigate('MenuTab', { screen: 'CasesTab' })}>
         {cases.slice(0, 6).map((c) => (
-          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('CasesTab', { screen: 'CaseDetail', params: { id: c.id } })}>
+          <TouchableOpacity key={c.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'CasesTab', params: { screen: 'CaseDetail', params: { id: c.id } } })}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{c.referring_facility_name} · {c.patient_age}y</Text>
               <DangerSignList signs={c.danger_signs} />
@@ -340,9 +340,9 @@ function SuperadminDashboard({ navigation }) {
         ))}
       </SectionCard>
 
-      <SectionCard title="Recent Referrals" onViewAll={() => navigation.navigate('Referrals')}>
+      <SectionCard title="Recent Referrals" onViewAll={() => navigation.navigate('MenuTab', { screen: 'Referrals' })}>
         {referrals.slice(0, 6).map((r) => (
-          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('Referrals', { screen: 'ReferralDetail', params: { id: r.id } })}>
+          <TouchableOpacity key={r.id} style={styles.row} onPress={() => navigation.navigate('MenuTab', { screen: 'Referrals', params: { screen: 'ReferralDetail', params: { id: r.id } } })}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>{r.referring_facility_name} → {r.receiving_facility_name}</Text>
               <Text style={styles.rowMeta}>{r.created_by_name}</Text>
