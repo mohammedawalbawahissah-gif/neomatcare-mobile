@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +12,7 @@ const ROLE_LABELS = { health_worker: 'Health Worker', facility_admin: 'Facility 
 const ROLE_VARIANT = { health_worker: 'success', facility_admin: 'info', specialist: 'primary', driver: 'warning', superadmin: 'danger', patient: 'info' };
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, updateUser, logout } = useAuth();
   const [profile, setProfile] = useState({ name: '', email: '' });
   const [dirty, setDirty] = useState(false);
@@ -61,7 +63,7 @@ export default function ProfileScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10] }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ paddingHorizontal: Spacing[4], paddingTop: insets.top + Spacing[4], paddingBottom: Spacing[10] }} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>My Profile</Text>
         <Text style={styles.subtitle}>Manage your account information and password</Text>
 

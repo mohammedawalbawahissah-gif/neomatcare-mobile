@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { patientsApi, getErrorMessage } from '../../api/client';
@@ -10,6 +11,7 @@ const BLOOD_GROUPS = ['unknown', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-
   .map((g) => ({ value: g, label: g === 'unknown' ? 'Unknown' : g }));
 
 export default function PatientCreateScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [form, setForm] = useState({
     patient_name: '', hospital_id: '', patient_phone_number: '',
     age: '', date_of_birth: '', town: '', blood_group: 'unknown',
@@ -43,7 +45,7 @@ export default function PatientCreateScreen({ navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>

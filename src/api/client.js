@@ -168,6 +168,14 @@ export const wellnessApi = {
   cyclePrediction:  ()     => apiClient.get('/api/wellness/cycle/prediction/'),
 };
 
+// ─── Notifications ─────────────────────────────────────────────────────────────
+export const notificationsApi = {
+  list:        ()   => apiClient.get('/api/notifications/'),
+  unreadCount: ()   => apiClient.get('/api/notifications/unread-count/'),
+  markRead:    (id) => apiClient.post(`/api/notifications/${id}/read/`),
+  markAllRead: ()   => apiClient.post('/api/notifications/mark-all-read/'),
+};
+
 // ─── Patients (persistent patient records — health_worker/facility_admin/superadmin) ─
 export const patientsApi = {
   list:        (params)   => apiClient.get('/api/cases/patients/', { params }),

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { transportApi, getErrorMessage } from '../../api/client';
 import { Spinner, EmptyState, ErrorBanner, Badge, Button } from '../../components/ui';
 import { RequestStatusModal } from '../transport/TransportScreen';
@@ -18,6 +19,7 @@ const timeAgo = (d) => {
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function MyDispatchesScreen() {
+  const insets = useSafeAreaInsets();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -44,7 +46,7 @@ export default function MyDispatchesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <Text style={styles.headerTitle}>My Dispatches</Text>
         <Text style={styles.headerSub}>{active.length} active</Text>
       </View>

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { casesApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Spinner, EmptyState, ErrorBanner } from '../../components/ui';
@@ -20,6 +21,7 @@ function timeAgo(dateStr) {
 }
 
 export default function CasesScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { isHealthWorker, isFacilityAdmin, isSuperadmin } = useAuth();
   const canCreate = isHealthWorker || isSuperadmin;
   const showCreator = isFacilityAdmin || isSuperadmin;
@@ -69,7 +71,7 @@ export default function CasesScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <View>
           <Text style={styles.headerTitle}>Emergency Cases</Text>
           <Text style={styles.headerSub}>{cases.length} case{cases.length !== 1 ? 's' : ''}</Text>

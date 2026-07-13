@@ -66,6 +66,7 @@ import PatientPortalScreen from '../screens/patient-portal/PatientPortalScreen';
 
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import AssistantWidget from '../components/ai/AssistantWidget';
+import NotificationBell from '../components/notifications/NotificationBell';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -359,6 +360,7 @@ const RootNavigator = () => {
   return (
     <>
       <RoleTabs />
+      <NotificationBell />
       <AssistantWidget />
     </>
   );

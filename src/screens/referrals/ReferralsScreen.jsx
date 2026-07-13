@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { referralsApi, getErrorMessage } from '../../api/client';
 import { Spinner, EmptyState, ErrorBanner, Badge } from '../../components/ui';
 import Colors from '../../constants/colors';
@@ -23,6 +24,7 @@ function timeAgo(dateStr) {
 }
 
 export default function ReferralsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [referrals, setReferrals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -62,7 +64,7 @@ export default function ReferralsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <Text style={styles.headerTitle}>Referrals</Text>
         <Text style={styles.headerSub}>{referrals.length} referral{referrals.length !== 1 ? 's' : ''}</Text>
       </View>

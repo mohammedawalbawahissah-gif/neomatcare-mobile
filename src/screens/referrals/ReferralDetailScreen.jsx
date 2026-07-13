@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { referralsApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
 import Colors from '../../constants/colors';
@@ -146,8 +147,9 @@ export default function ReferralDetailScreen({ route, navigation }) {
 }
 
 function Header({ navigation, status }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
         <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
       </TouchableOpacity>

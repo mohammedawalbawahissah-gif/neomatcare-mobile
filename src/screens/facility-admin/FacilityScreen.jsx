@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { facilitiesApi, getErrorMessage } from '../../api/client';
@@ -11,6 +12,7 @@ const LEVEL_LABELS = { 1: 'CHPS Compound', 2: 'Health Centre', 3: 'District Hosp
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function FacilityScreen() {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const facilityId = user?.facility_id || user?.facility;
 
@@ -63,7 +65,7 @@ export default function FacilityScreen() {
   const f = facility;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10] }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: Spacing[4], paddingTop: insets.top + Spacing[4], paddingBottom: Spacing[10] }}>
       <Text style={styles.title}>{f.name}</Text>
       <Text style={styles.subtitle}>{LEVEL_LABELS[f.level] || `Level ${f.level}`} · {f.district}{f.region ? `, ${f.region}` : ''}</Text>
 

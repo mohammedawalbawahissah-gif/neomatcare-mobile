@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -164,8 +165,9 @@ export default function PatientDetailScreen({ route, navigation }) {
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 function Header({ navigation, title }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
         <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
       </TouchableOpacity>

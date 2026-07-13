@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { consultationsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
@@ -24,6 +25,7 @@ const timeAgo = (d) => {
 };
 
 export default function ConsultationsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { isSuperadmin, isFacilityAdmin, user } = useAuth();
   const canManage = isSuperadmin || isFacilityAdmin;
 
@@ -82,7 +84,7 @@ export default function ConsultationsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <View>
           <Text style={styles.headerTitle}>Consultations</Text>
           <Text style={styles.headerSub}>{items.length} consultation{items.length !== 1 ? 's' : ''} · {specialists.length} specialist{specialists.length !== 1 ? 's' : ''}</Text>

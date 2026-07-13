@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usersApi, facilitiesApi, getErrorMessage } from '../../api/client';
@@ -19,6 +20,7 @@ const timeAgo = (d) => {
 };
 
 export default function UsersScreen() {
+  const insets = useSafeAreaInsets();
   const { user: currentUser, isSuperadmin, isFacilityAdmin } = useAuth();
   const canManage = isSuperadmin || isFacilityAdmin;
 
@@ -70,7 +72,7 @@ export default function UsersScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <View>
           <Text style={styles.headerTitle}>Users</Text>
           <Text style={styles.headerSub}>{isFacilityAdmin ? 'Users at your facility' : 'All platform users'}</Text>

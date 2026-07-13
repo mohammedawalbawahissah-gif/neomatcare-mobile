@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { transportApi, usersApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
@@ -34,6 +35,7 @@ const timeAgo = (d) => {
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function TransportScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { isFacilityAdmin, isSuperadmin } = useAuth();
   const canManage = isFacilityAdmin || isSuperadmin;
 
@@ -67,7 +69,7 @@ export default function TransportScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <View>
           <Text style={styles.headerTitle}>Transport</Text>
           <Text style={styles.headerSub}>{fleet.length} vehicle{fleet.length !== 1 ? 's' : ''} · {active.length} active</Text>

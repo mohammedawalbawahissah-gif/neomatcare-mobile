@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { facilitiesApi, getErrorMessage } from '../../api/client';
@@ -10,6 +11,7 @@ const LEVEL_LABELS = { 1: 'CHPS Compound', 2: 'Health Centre', 3: 'District Hosp
 const LEVEL_OPTIONS = Object.entries(LEVEL_LABELS).map(([v, l]) => ({ value: Number(v), label: `${v} – ${l}` }));
 
 export default function FacilitiesScreen() {
+  const insets = useSafeAreaInsets();
   const [facilities, setFacilities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -36,7 +38,7 @@ export default function FacilitiesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <View>
           <Text style={styles.headerTitle}>Facilities Registry</Text>
           <Text style={styles.headerSub}>{facilities.length} facilities registered</Text>

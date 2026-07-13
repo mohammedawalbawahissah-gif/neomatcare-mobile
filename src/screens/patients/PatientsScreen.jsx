@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Spinner, EmptyState, ErrorBanner, Badge } from '../../components/ui';
@@ -20,6 +21,7 @@ const RISK_OPTIONS = [
 const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' };
 
 export default function PatientsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { isHealthWorker, isFacilityAdmin, isSuperadmin } = useAuth();
   const canCreate = isHealthWorker || isFacilityAdmin || isSuperadmin;
 
@@ -77,7 +79,7 @@ export default function PatientsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <Text style={styles.headerTitle}>Patients</Text>
         {canCreate && (
           <TouchableOpacity style={styles.addBtn} onPress={() => navigation.navigate('PatientCreate')}>

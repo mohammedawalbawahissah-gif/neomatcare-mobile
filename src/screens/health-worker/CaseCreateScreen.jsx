@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -31,6 +32,7 @@ const INITIAL_FORM = {
 };
 
 export default function CaseCreateScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const preselectedPatientId = route?.params?.patientId || null;
   const [step, setStep] = useState(preselectedPatientId ? 1 : 0); // 0 = patient search, 1 = case form, 2 = actions
   const [form, setForm] = useState(INITIAL_FORM);
@@ -54,7 +56,7 @@ export default function CaseCreateScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
         <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
           <Ionicons name={step === 2 ? 'close' : 'arrow-back'} size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
