@@ -94,9 +94,8 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
         </View>
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Are you a patient? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('PatientRegister')}>
-            <Text style={styles.footerLink}>Register for the patient portal</Text>
+            <Text style={styles.footerLink}>Not staff? Create your Health Companion account</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

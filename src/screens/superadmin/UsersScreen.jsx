@@ -70,6 +70,20 @@ export default function UsersScreen() {
     setDeleteUser(null);
   };
 
+  const [approvingId, setApprovingId] = useState(null);
+  const handleApprove = async (u) => {
+    setApprovingId(u.id);
+    try {
+      const { data } = await usersApi.approve(u.id);
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? data : x)));
+      setAllUsers((prev) => prev.map((x) => (x.id === u.id ? data : x)));
+    } catch (err) {
+      setError(getErrorMessage(err) || 'Could not approve this user. Please try again.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
@@ -113,6 +127,9 @@ export default function UsersScreen() {
                 <Text style={styles.cardName}>{u.name}</Text>
                 <Badge label={ROLE_LABELS[u.role] || u.role} variant={ROLE_VARIANT[u.role]} />
                 {!u.is_active && <Badge label="Inactive" variant="default" />}
+                {u.role !== 'patient' && u.role !== 'superadmin' && !u.is_approved && (
+                  <Badge label="Pending Approval" variant="warning" />
+                )}
               </View>
               <Text style={styles.cardMeta}>✉ {u.email}</Text>
               {!!u.facility_name && <Text style={styles.cardMeta}>🏥 {u.facility_name}</Text>}
@@ -120,6 +137,15 @@ export default function UsersScreen() {
             </View>
             {canManage && (
               <View style={{ gap: 6 }}>
+                {u.role !== 'patient' && u.role !== 'superadmin' && !u.is_approved && (
+                  <TouchableOpacity
+                    style={[styles.iconBtn, styles.iconBtnWarning]}
+                    onPress={() => handleApprove(u)}
+                    disabled={approvingId === u.id}
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={15} color={Colors.warningDark} />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={styles.iconBtn} onPress={() => setEditUser(u)}>
                   <Ionicons name="create-outline" size={15} color={Colors.successDark} />
                 </TouchableOpacity>
@@ -278,6 +304,7 @@ const styles = StyleSheet.create({
   cardMetaFaded: { fontSize: 10, color: Colors.gray300, marginTop: 2 },
   iconBtn: { width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: Colors.successLight, alignItems: 'center', justifyContent: 'center' },
   iconBtnDanger: { backgroundColor: Colors.dangerLight },
+  iconBtnWarning: { backgroundColor: Colors.warningLight },
   deleteBody: { fontSize: Typography.sm, color: Colors.textSecondary },
   deleteBodySmall: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 4, marginBottom: Spacing[2] },
   hardDeleteRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing[2] },

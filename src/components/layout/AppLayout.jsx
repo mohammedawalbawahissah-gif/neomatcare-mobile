@@ -59,7 +59,7 @@ const ROLE_LABELS = {
   specialist:     'Specialist',
   driver:         'Driver',
   superadmin:     'Superadmin',
-  patient:        'Patient',
+  patient:        'Health Companion',
 }
 
 const ROLE_COLORS = {

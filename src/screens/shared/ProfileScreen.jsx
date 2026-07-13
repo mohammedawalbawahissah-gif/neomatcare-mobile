@@ -8,7 +8,7 @@ import { Input, Button, Card, Badge, Avatar } from '../../components/ui';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
-const ROLE_LABELS = { health_worker: 'Health Worker', facility_admin: 'Facility Admin', specialist: 'Specialist', driver: 'Driver', superadmin: 'Superadmin', patient: 'Patient' };
+const ROLE_LABELS = { health_worker: 'Health Worker', facility_admin: 'Facility Admin', specialist: 'Specialist', driver: 'Driver', superadmin: 'Superadmin', patient: 'Health Companion' };
 const ROLE_VARIANT = { health_worker: 'success', facility_admin: 'info', specialist: 'primary', driver: 'warning', superadmin: 'danger', patient: 'info' };
 
 export default function ProfileScreen() {

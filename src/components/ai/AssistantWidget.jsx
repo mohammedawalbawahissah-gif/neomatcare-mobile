@@ -75,6 +75,7 @@ export default function AssistantWidget({ context = {} }) {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
 
   const sendMessage = useCallback(async (text) => {
     const content = (text || input).trim();
@@ -105,6 +106,11 @@ export default function AssistantWidget({ context = {} }) {
     setMessages([{ role: 'assistant', content: config.greeting }]);
     setError(''); setInput('');
   };
+
+  const handleQuickPrompt = useCallback((text) => {
+    setInput(text);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
 
   return (
     <>
@@ -165,7 +171,7 @@ export default function AssistantWidget({ context = {} }) {
             {messages.length <= 1 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.promptsRow} contentContainerStyle={{ gap: 6, paddingHorizontal: Spacing[3] }}>
                 {prompts.map((p) => (
-                  <TouchableOpacity key={p} style={styles.promptChip} onPress={() => sendMessage(p)} disabled={loading}>
+                  <TouchableOpacity key={p} style={styles.promptChip} onPress={() => handleQuickPrompt(p)} disabled={loading}>
                     <Text style={styles.promptChipText}>{p}</Text>
                   </TouchableOpacity>
                 ))}
@@ -175,6 +181,7 @@ export default function AssistantWidget({ context = {} }) {
             {/* Input */}
             <View style={styles.inputRow}>
               <TextInput
+                ref={inputRef}
                 style={styles.input} value={input} onChangeText={setInput}
                 placeholder="Ask anything…" placeholderTextColor={Colors.gray400}
                 multiline editable={!loading} onSubmitEditing={() => sendMessage()}
