@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { patientPortalApi, transportApi, wellnessApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
@@ -17,24 +18,48 @@ const TABS = [
   { id: 'health', label: 'My Health', icon: 'heart-outline' },
 ];
 
+// Mirrors TAB_COLORS on web exactly — soft tint when inactive, solid fill
+// when active, so the whole bar visibly shifts mood with the selected tab.
+const TAB_COLORS = {
+  pregnancy: { tint: '#dcfce7', text: '#166534', solid: '#16a34a' },
+  cycle:     { tint: '#fce7f3', text: '#831843', solid: '#be185d' },
+  reviews:   { tint: '#fef3c7', text: '#92400e', solid: '#b45309' },
+  oncall:    { tint: '#dbeafe', text: '#1e3a8a', solid: '#1d4ed8' },
+  transport: { tint: '#ffedd5', text: '#9a3412', solid: '#c2410c' },
+  health:    { tint: '#f3e8ff', text: '#6b21a8', solid: '#7e22ce' },
+};
+
 export default function PatientPortalScreen() {
   const { user } = useAuth();
   const [tab, setTab] = useState('pregnancy');
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing[3] }]}>
         <Text style={styles.title}>Welcome, {user?.name?.split(' ')[0]} 👋</Text>
         <Text style={styles.subtitle}>Your personal maternity care portal</Text>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBarWrap} contentContainerStyle={styles.tabBar}>
-        {TABS.map((t) => (
-          <TouchableOpacity key={t.id} onPress={() => setTab(t.id)} style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}>
-            <Ionicons name={t.icon} size={16} color={tab === t.id ? Colors.white : Colors.textSecondary} />
-            <Text style={[styles.tabBtnText, tab === t.id && styles.tabBtnTextActive]}>{t.label}</Text>
-          </TouchableOpacity>
-        ))}
+        {TABS.map((t) => {
+          const c = TAB_COLORS[t.id];
+          const isActive = tab === t.id;
+          return (
+            <TouchableOpacity
+              key={t.id}
+              onPress={() => setTab(t.id)}
+              style={[
+                styles.tabBtn,
+                { backgroundColor: isActive ? c.solid : c.tint },
+                isActive && Shadow.sm,
+              ]}
+            >
+              <Ionicons name={t.icon} size={16} color={isActive ? Colors.white : c.text} />
+              <Text style={[styles.tabBtnText, { color: isActive ? Colors.white : c.text }, isActive && styles.tabBtnTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10] }}>
