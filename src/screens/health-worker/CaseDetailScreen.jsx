@@ -210,8 +210,8 @@ function Header({ navigation, title, onEdit }) {
       </TouchableOpacity>
       <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
       {onEdit ? (
-        <TouchableOpacity onPress={onEdit} style={styles.backBtn}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>
-      ) : <View style={{ width: 36 }} />}
+        <TouchableOpacity onPress={onEdit} style={[styles.backBtn, { marginRight: 52 }]}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>
+      ) : <View style={{ width: 36, marginRight: 52 }} />}
     </View>
   );
 }

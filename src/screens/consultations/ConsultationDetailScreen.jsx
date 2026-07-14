@@ -102,7 +102,7 @@ function Header({ navigation, status, canManage, onEdit, onDelete }) {
         <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
       </TouchableOpacity>
       <Text style={styles.headerTitle}>Consultation</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 52 }}>
         {status && <Badge label={status} variant={STATUS_VARIANT[status]} />}
         {canManage && onEdit && (
           <TouchableOpacity onPress={onEdit}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>

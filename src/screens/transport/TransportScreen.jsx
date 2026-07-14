@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing[4], paddingTop: Spacing[5], paddingBottom: Spacing[2] },
   headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
   headerSub: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
-  addBtn: { width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadow.sm },
+  addBtn: { width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginRight: 52, ...Shadow.sm },
   tabBar: { flexDirection: 'row', gap: 4, backgroundColor: Colors.gray100, borderRadius: Radius.md, padding: 4, marginHorizontal: Spacing[4], marginTop: Spacing[2], alignSelf: 'flex-start' },
   tabBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: Radius.sm },
   tabBtnActive: { backgroundColor: Colors.white, ...Shadow.sm },

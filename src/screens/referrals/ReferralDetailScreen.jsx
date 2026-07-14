@@ -154,7 +154,7 @@ function Header({ navigation, status }) {
         <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
       </TouchableOpacity>
       <Text style={styles.headerTitle}>Referral</Text>
-      {status ? <Badge label={status.replace(/_/g, ' ')} variant={STATUS_VARIANT[status]} /> : <View style={{ width: 36 }} />}
+      {status ? <Badge label={status.replace(/_/g, ' ')} variant={STATUS_VARIANT[status]} style={{ marginRight: 52 }} /> : <View style={{ width: 36, marginRight: 52 }} />}
     </View>
   );
 }

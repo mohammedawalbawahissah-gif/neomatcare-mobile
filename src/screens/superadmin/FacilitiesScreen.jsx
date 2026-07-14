@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing[4], paddingTop: Spacing[5], paddingBottom: Spacing[2] },
   headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
   headerSub: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
-  addBtn: { width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', ...Shadow.sm },
+  addBtn: { width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginRight: 52, ...Shadow.sm },
   levelChip: { alignItems: 'center', backgroundColor: Colors.white, borderRadius: Radius.md, paddingVertical: 8, paddingHorizontal: 14, ...Shadow.sm },
   levelChipActive: { borderWidth: 2, borderColor: Colors.primary },
   levelChipCount: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },

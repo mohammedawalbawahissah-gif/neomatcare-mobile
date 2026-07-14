@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
   addBtn: {
     width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center', ...Shadow.sm,
+    alignItems: 'center', justifyContent: 'center', marginRight: 52, ...Shadow.sm,
   },
   searchRow: { paddingHorizontal: Spacing[4] },
   card: {
