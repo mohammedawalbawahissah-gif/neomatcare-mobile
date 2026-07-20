@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
 } from 'react-native';
@@ -7,6 +7,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds, isQueueItemFailed } from '../../utils/offlineQueue';
 import {
   Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card,
 } from '../../components/ui';
@@ -41,6 +43,25 @@ export default function PatientDetailScreen({ route, navigation }) {
   const [ancModal, setAncModal]         = useState(false);
   const [consentModal, setConsentModal] = useState(false);
   const [portalModal, setPortalModal]   = useState(false);
+  const { pending, syncVersion } = useOfflineQueue();
+
+  const queuedAncVisits = pending
+    .filter((item) => item.meta?.kind === QueueKinds.ANC_VISIT_CREATE && item.meta?.patientId === id)
+    .map((item) => ({
+      id: `queued:${item.id}`,
+      __queued: true,
+      __failed: isQueueItemFailed(item),
+      visit_date: item.data.visit_date,
+      gestational_age_weeks: item.data.gestational_age_weeks,
+      bp_systolic: item.data.bp_systolic,
+      bp_diastolic: item.data.bp_diastolic,
+      fetal_heart_rate: item.data.fetal_heart_rate,
+      weight_kg: item.data.weight_kg,
+      concerns: item.data.concerns,
+      notes: item.data.notes,
+      facility_name: null,
+      conducted_by_name: null,
+    }));
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +76,10 @@ export default function PatientDetailScreen({ route, navigation }) {
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  useEffect(() => {
+    if (syncVersion > 0) load();
+  }, [syncVersion]);
 
   const handleComputeRisk = async () => {
     setComputing(true);
@@ -124,7 +149,7 @@ export default function PatientDetailScreen({ route, navigation }) {
           {TABS.map((t) => (
             <TouchableOpacity key={t.id} onPress={() => setTab(t.id)} style={[styles.tabBtn, tab === t.id && styles.tabBtnActive]}>
               <Text style={[styles.tabText, tab === t.id && styles.tabTextActive]}>
-                {t.label}{t.id === 'anc' ? ` (${p.anc_visit_log?.length || 0})` : t.id === 'cases' ? ` (${cases.length})` : ''}
+                {t.label}{t.id === 'anc' ? ` (${(p.anc_visit_log?.length || 0) + queuedAncVisits.length})` : t.id === 'cases' ? ` (${cases.length})` : ''}
               </Text>
             </TouchableOpacity>
           ))}
@@ -134,7 +159,7 @@ export default function PatientDetailScreen({ route, navigation }) {
           {tab === 'overview' && <OverviewTab p={p} />}
           {tab === 'anc' && (
             <AncTab
-              visits={p.anc_visit_log || []}
+              visits={[...queuedAncVisits, ...(p.anc_visit_log || [])]}
               canManage={canManage}
               onAdd={() => setAncModal(true)}
               patientId={p.id}
@@ -233,12 +258,13 @@ function AncTab({ visits, canManage, onAdd, patientId }) {
       {visits.length === 0 ? (
         <Card><Text style={styles.emptyText}>No ANC visits recorded yet.</Text></Card>
       ) : visits.map((v) => (
-        <Card key={v.id}>
+        <Card key={v.id} style={v.__queued && { borderWidth: 1, borderColor: Colors.warningLight, borderStyle: 'dashed' }}>
           <View style={styles.ancHeaderRow}>
             <View>
               <Text style={styles.ancDate}>{fmt(v.visit_date)}{v.gestational_age_weeks ? ` · ${v.gestational_age_weeks} weeks` : ''}</Text>
               <Text style={styles.ancMeta}>{v.facility_name || 'No facility'} · {v.conducted_by_name || 'Unknown'}</Text>
             </View>
+            {v.__queued && <Badge label={v.__failed ? 'Sync failed' : 'Pending sync'} variant={v.__failed ? 'danger' : 'warning'} />}
           </View>
           <View style={styles.ancStatsRow}>
             {!!v.bp_systolic && <Text style={styles.ancStat}>BP {v.bp_systolic}/{v.bp_diastolic}</Text>}
@@ -328,6 +354,7 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { submitOrQueue } = useOfflineQueue();
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
   const handleSave = async () => {
@@ -340,7 +367,13 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
       });
       if (form.notes) payload.notes = form.notes;
       if (form.concerns) payload.concerns = form.concerns;
-      await patientsApi.ancVisits.create(patientId, payload);
+
+      await submitOrQueue({
+        method: 'post',
+        url: `/api/cases/patients/${patientId}/anc-visits/`,
+        data: payload,
+        meta: { kind: QueueKinds.ANC_VISIT_CREATE, label: `ANC visit — ${form.visit_date}`, patientId },
+      });
       setForm(initial);
       onSaved();
     } catch (err) {

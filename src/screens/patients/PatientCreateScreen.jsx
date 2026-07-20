@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { patientsApi, getErrorMessage } from '../../api/client';
+import { getErrorMessage } from '../../api/client';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds } from '../../utils/offlineQueue';
 import { Input, Select, Button, ErrorBanner } from '../../components/ui';
 import Colors from '../../constants/colors';
 import { Typography, Spacing } from '../../constants/theme';
@@ -12,6 +14,7 @@ const BLOOD_GROUPS = ['unknown', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-
 
 export default function PatientCreateScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { submitOrQueue } = useOfflineQueue();
   const [form, setForm] = useState({
     patient_name: '', hospital_id: '', patient_phone_number: '',
     age: '', date_of_birth: '', town: '', blood_group: 'unknown',
@@ -34,8 +37,22 @@ export default function PatientCreateScreen({ navigation }) {
       if (payload.gravida) payload.gravida = Number(payload.gravida);
       if (payload.parity)  payload.parity  = Number(payload.parity);
       payload.age = Number(payload.age);
-      const { data } = await patientsApi.create(payload);
-      navigation.replace('PatientDetail', { id: data.id });
+
+      const result = await submitOrQueue({
+        method: 'post',
+        url: '/api/cases/patients/',
+        data: payload,
+        meta: { kind: QueueKinds.PATIENT_CREATE, label: payload.patient_name || 'New patient' },
+      });
+
+      if (result.queued) {
+        // No server id yet — there's no detail screen to open, so go back
+        // to the list. The offline banner tells the worker it's saved and
+        // will sync; the record itself isn't visible in the list until then.
+        navigation.goBack();
+      } else {
+        navigation.replace('PatientDetail', { id: result.response.data.id });
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

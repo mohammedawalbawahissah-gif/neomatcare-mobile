@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
   headerSub:   { fontSize: Typography.xs, color: Colors.gray400, marginTop: 2 },
   addBtn: {
     width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center', marginRight: 52, ...Shadow.sm,
+    alignItems: 'center', justifyContent: 'center', ...Shadow.sm,
   },
   card: {
     flexDirection: 'row', gap: Spacing[3],

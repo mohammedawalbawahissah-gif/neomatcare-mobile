@@ -143,7 +143,6 @@ export const usersApi = {
   create: (data)     => apiClient.post('/api/auth/users/', data),
   update: (id, data) => apiClient.patch(`/api/auth/users/${id}/`, data),
   delete: (id, params) => apiClient.delete(`/api/auth/users/${id}/`, { params }),
-  approve: (id)       => apiClient.post(`/api/auth/users/${id}/approve/`),
 };
 
 // ─── Specialist search (used when creating a consultation) ───────────────────

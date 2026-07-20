@@ -25,7 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 // Auth
 import LoginScreen           from '../screens/auth/LoginScreen';
 import RegisterScreen        from '../screens/auth/RegisterScreen';
-import WellnessCompanionScreen from '../screens/auth/WellnessCompanionScreen';
+import PatientRegisterScreen from '../screens/auth/PatientRegisterScreen';
 
 // Shared
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
@@ -67,6 +67,7 @@ import PatientPortalScreen from '../screens/patient-portal/PatientPortalScreen';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import AssistantWidget from '../components/ai/AssistantWidget';
 import NotificationBell from '../components/notifications/NotificationBell';
+import SyncQueueBell from '../components/sync/SyncQueueBell';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -77,7 +78,7 @@ const AuthStack = () => (
   <Stack.Navigator screenOptions={NO_HEADER}>
     <Stack.Screen name="Login"           component={LoginScreen} />
     <Stack.Screen name="Register"        component={RegisterScreen} />
-    <Stack.Screen name="PatientRegister" component={WellnessCompanionScreen} />
+    <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
   </Stack.Navigator>
 );
 
@@ -361,6 +362,7 @@ const RootNavigator = () => {
     <>
       <RoleTabs />
       <NotificationBell />
+      <SyncQueueBell />
       <AssistantWidget />
     </>
   );

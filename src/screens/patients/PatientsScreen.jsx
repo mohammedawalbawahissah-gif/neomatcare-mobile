@@ -8,6 +8,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds, isQueueItemFailed } from '../../utils/offlineQueue';
 import { Input, Select, Spinner, EmptyState, ErrorBanner, Badge } from '../../components/ui';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
@@ -24,6 +26,7 @@ export default function PatientsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { isHealthWorker, isFacilityAdmin, isSuperadmin } = useAuth();
   const canCreate = isHealthWorker || isFacilityAdmin || isSuperadmin;
+  const { pending, syncVersion } = useOfflineQueue();
 
   const [patients, setPatients] = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -31,6 +34,28 @@ export default function PatientsScreen({ navigation }) {
   const [error, setError]       = useState('');
   const [search, setSearch]     = useState('');
   const [risk, setRisk]         = useState('');
+
+  // Patients created while offline don't have a server id yet, so they
+  // can't come back from patientsApi.list() — without this they'd simply
+  // be invisible until the queue drains, which reads as data loss to
+  // whoever just filled the form in. Render them as real rows, distinctly
+  // marked, right where a synced patient would appear.
+  const queuedPatients = pending
+    .filter((item) => item.meta?.kind === QueueKinds.PATIENT_CREATE)
+    .map((item) => ({
+      id: `queued:${item.id}`,
+      __queued: true,
+      __failed: isQueueItemFailed(item),
+      patient_name: item.data.patient_name,
+      hospital_id: item.data.hospital_id,
+      age: item.data.age,
+      town: item.data.town,
+      risk_level: null,
+      consent_given: false,
+      anc_visits: 0,
+      case_count: 0,
+      last_case_date: null,
+    }));
 
   const load = useCallback(async (q = search, riskLevel = risk, isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -51,31 +76,60 @@ export default function PatientsScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  const renderItem = ({ item: p }) => (
-    <TouchableOpacity
-      style={styles.card}
-      activeOpacity={0.8}
-      onPress={() => navigation.navigate('PatientDetail', { id: p.id })}
-    >
-      <View style={styles.cardIcon}>
-        <Ionicons name="person-circle-outline" size={24} color={Colors.primary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardName} numberOfLines={1}>{p.patient_name || 'Unnamed patient'}</Text>
-          <Badge label={`${p.risk_level || 'low'} risk`} variant={RISK_VARIANT[p.risk_level] || 'default'} />
-          {p.consent_given && <Badge label="Consent" variant="info" />}
+  // A queued patient disappears from `pending` the instant it syncs — refetch
+  // immediately so the real record replaces it without a visible gap.
+  useEffect(() => {
+    if (syncVersion > 0) load(search, risk, true);
+  }, [syncVersion]);
+
+  const renderItem = ({ item: p }) => {
+    if (p.__queued) {
+      return (
+        <View style={[styles.card, styles.cardQueued]}>
+          <View style={[styles.cardIcon, { backgroundColor: p.__failed ? Colors.dangerLight : Colors.warningLight }]}>
+            <Ionicons name={p.__failed ? 'alert-circle-outline' : 'time-outline'} size={22} color={p.__failed ? Colors.dangerDark : Colors.warningDark} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardName} numberOfLines={1}>{p.patient_name || 'Unnamed patient'}</Text>
+              <Badge label={p.__failed ? 'Sync failed' : 'Pending sync'} variant={p.__failed ? 'danger' : 'warning'} />
+            </View>
+            <Text style={styles.cardMeta} numberOfLines={1}>
+              ID: {p.hospital_id || '—'} · Age {p.age} · {p.town || 'Unknown town'} · not yet on server
+            </Text>
+          </View>
         </View>
-        <Text style={styles.cardMeta} numberOfLines={1}>
-          ID: {p.hospital_id || '—'} · Age {p.age} · {p.town || 'Unknown town'} · {p.anc_visits} ANC visit{p.anc_visits !== 1 ? 's' : ''}
-        </Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <Text style={styles.caseCount}>{p.case_count} case{p.case_count !== 1 ? 's' : ''}</Text>
-        <Text style={styles.caseDate}>{p.last_case_date ? new Date(p.last_case_date).toLocaleDateString() : 'No cases'}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('PatientDetail', { id: p.id })}
+      >
+        <View style={styles.cardIcon}>
+          <Ionicons name="person-circle-outline" size={24} color={Colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardName} numberOfLines={1}>{p.patient_name || 'Unnamed patient'}</Text>
+            <Badge label={`${p.risk_level || 'low'} risk`} variant={RISK_VARIANT[p.risk_level] || 'default'} />
+            {p.consent_given && <Badge label="Consent" variant="info" />}
+          </View>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            ID: {p.hospital_id || '—'} · Age {p.age} · {p.town || 'Unknown town'} · {p.anc_visits} ANC visit{p.anc_visits !== 1 ? 's' : ''}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={styles.caseCount}>{p.case_count} case{p.case_count !== 1 ? 's' : ''}</Text>
+          <Text style={styles.caseDate}>{p.last_case_date ? new Date(p.last_case_date).toLocaleDateString() : 'No cases'}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const listData = [...queuedPatients, ...patients];
 
   return (
     <View style={styles.container}>
@@ -109,7 +163,7 @@ export default function PatientsScreen({ navigation }) {
 
       {loading ? (
         <Spinner fullScreen />
-      ) : patients.length === 0 ? (
+      ) : listData.length === 0 ? (
         <EmptyState
           icon="people-outline"
           title="No patients found"
@@ -118,7 +172,7 @@ export default function PatientsScreen({ navigation }) {
         />
       ) : (
         <FlatList
-          data={patients}
+          data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={{ padding: Spacing[4], gap: Spacing[2] }}
@@ -138,13 +192,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
   addBtn: {
     width: 36, height: 36, borderRadius: Radius.full, backgroundColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center', marginRight: 52, ...Shadow.sm,
+    alignItems: 'center', justifyContent: 'center', ...Shadow.sm,
   },
   searchRow: { paddingHorizontal: Spacing[4] },
   card: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing[3],
     backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing[3], ...Shadow.sm,
   },
+  cardQueued: { borderWidth: 1, borderColor: Colors.warningLight, borderStyle: 'dashed' },
   cardIcon: {
     width: 40, height: 40, borderRadius: Radius.md, backgroundColor: Colors.primaryLight,
     alignItems: 'center', justifyContent: 'center',

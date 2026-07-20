@@ -7,6 +7,9 @@ import {
   casesApi, referralsApi, facilitiesApi, transportApi, consultationsApi, getErrorMessage,
 } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds, isQueueItemFailed } from '../../utils/offlineQueue';
+import { cachedFetch } from '../../utils/cachedFetch';
 import {
   Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card,
 } from '../../components/ui';
@@ -210,8 +213,8 @@ function Header({ navigation, title, onEdit }) {
       </TouchableOpacity>
       <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
       {onEdit ? (
-        <TouchableOpacity onPress={onEdit} style={[styles.backBtn, { marginRight: 52 }]}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>
-      ) : <View style={{ width: 36, marginRight: 52 }} />}
+        <TouchableOpacity onPress={onEdit} style={styles.backBtn}><Ionicons name="create-outline" size={20} color={Colors.primary} /></TouchableOpacity>
+      ) : <View style={{ width: 36 }} />}
     </View>
   );
 }
@@ -232,6 +235,11 @@ function ReferralSection({ caseId, canManage, refreshKey }) {
   const [referral, setReferral] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [statusModal, setStatusModal] = useState(false);
+  const { pending } = useOfflineQueue();
+
+  const queuedReferral = pending.find(
+    (item) => item.meta?.kind === QueueKinds.REFERRAL_CREATE && item.meta?.caseId === caseId
+  );
 
   const fetchReferral = useCallback(async () => {
     setLoading(true);
@@ -253,6 +261,22 @@ function ReferralSection({ caseId, canManage, refreshKey }) {
   if (loading) return <Card><Text style={styles.emptyText}>Loading referral…</Text></Card>;
 
   if (!referral) {
+    if (queuedReferral) {
+      const failed = isQueueItemFailed(queuedReferral);
+      return (
+        <Card style={{ borderWidth: 1, borderColor: failed ? Colors.dangerLight : Colors.warningLight, borderStyle: 'dashed' }}>
+          <View style={styles.refHeaderRow}>
+            <Text style={styles.cardLabel}>Referral</Text>
+            <Badge label={failed ? 'Sync failed' : 'Pending sync'} variant={failed ? 'danger' : 'warning'} />
+          </View>
+          <Text style={styles.emptyText}>
+            {failed
+              ? `Saved on this device but couldn't reach the server: ${queuedReferral.lastError || 'unknown error'}. Check the sync icon to retry or discard.`
+              : `${queuedReferral.meta?.label || 'Referral'} is saved on this device and will be sent once back online. Transport can be assigned after it syncs.`}
+          </Text>
+        </Card>
+      );
+    }
     return (
       <Card>
         <Text style={styles.cardLabel}>Referral</Text>
@@ -434,6 +458,7 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
   const [mode, setMode] = useState('ai'); // 'ai' | 'manual'
   const [suggestion, setSuggestion] = useState(null);
   const [facilities, setFacilities] = useState([]);
+  const [facilitiesFromCache, setFacilitiesFromCache] = useState(false);
   const [facilitySearch, setFacilitySearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [override, setOverride] = useState('');
@@ -441,15 +466,24 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [createdReferral, setCreatedReferral] = useState(null);
+  const [queuedOffline, setQueuedOffline] = useState(false);
+  const { submitOrQueue } = useOfflineQueue();
 
   React.useEffect(() => {
     if (!visible) return;
-    setLoading(true); setSuggestion(null); setSelected(null); setError(''); setCreatedReferral(null); setFacilitySearch('');
+    setLoading(true); setSuggestion(null); setSelected(null); setError(''); setCreatedReferral(null); setQueuedOffline(false); setFacilitySearch('');
     referralsApi.suggest(c.id)
       .then(({ data }) => { setSuggestion(data); if (data.recommended_facility) setSelected(data.recommended_facility); })
       .catch(() => setError('Could not load AI suggestions. Try manual selection.'))
       .finally(() => setLoading(false));
-    facilitiesApi.list().then(({ data }) => setFacilities(Array.isArray(data) ? data : (data.results || []))).catch(() => {});
+    // Cached so manual facility selection still works with no signal — without
+    // this, "Choose Manually" would offer nothing to choose from when offline.
+    cachedFetch('facilities_list', () => facilitiesApi.list().then((r) => r.data))
+      .then(({ data, fromCache }) => {
+        setFacilities(Array.isArray(data) ? data : (data.results || []));
+        setFacilitiesFromCache(fromCache);
+      })
+      .catch(() => {});
   }, [visible, c?.id]);
 
   const options = mode === 'ai'
@@ -464,13 +498,26 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
     if (!selected) return;
     setCreating(true); setError('');
     try {
-      const { data } = await referralsApi.create({
+      const payload = {
         emergency_case_id: c.id, receiving_facility_id: selected.id,
         engine_recommendation_id: suggestion?.recommended_facility?.id || null,
         engine_version: suggestion?.engine_version || '',
         override_reason: mode === 'manual' || needsOverride ? override : '',
+      };
+      const result = await submitOrQueue({
+        method: 'post',
+        url: '/api/referrals/create/',
+        data: payload,
+        meta: { kind: QueueKinds.REFERRAL_CREATE, label: `Referral to ${selected.name}`, caseId: c.id },
       });
-      setCreatedReferral(data); // move to the transport-assignment step
+      if (result.queued) {
+        // No server id yet, so there's nothing for PostReferralTransportModal
+        // to link a transport request to — that has to wait until this
+        // syncs. Say so plainly instead of silently skipping the step.
+        setQueuedOffline(true);
+      } else {
+        setCreatedReferral(result.response.data); // move to the transport-assignment step
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally { setCreating(false); }
@@ -486,6 +533,25 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
     );
   }
 
+  if (queuedOffline) {
+    return (
+      <Modal visible={visible} onClose={onClose} title="Referral Saved" size="lg">
+        <Card style={{ borderWidth: 1, borderColor: Colors.warningLight, borderStyle: 'dashed' }}>
+          <View style={styles.refHeaderRow}>
+            <Text style={styles.cardLabel}>Referral to {selected?.name}</Text>
+            <Badge label="Pending sync" variant="warning" />
+          </View>
+          <Text style={styles.emptyText}>
+            Saved on this device — no connection right now. It will be sent to the server automatically once you're back online, and you can assign transport for it after that.
+          </Text>
+        </Card>
+        <View style={styles.modalActions}>
+          <Button title="Done" onPress={() => { onSaved(); onClose(); }} style={{ flex: 1 }} />
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} onClose={onClose} title="Create Referral" size="lg">
       <View style={styles.modeRow}>
@@ -498,10 +564,15 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
       </View>
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       {mode === 'manual' && (
-        <Input
-          value={facilitySearch} onChangeText={setFacilitySearch}
-          placeholder="Search by facility name or level…" icon="search-outline"
-        />
+        <>
+          <Input
+            value={facilitySearch} onChangeText={setFacilitySearch}
+            placeholder="Search by facility name or level…" icon="search-outline"
+          />
+          {facilitiesFromCache && (
+            <Text style={styles.cacheNotice}>Showing facilities saved from your last connection — may be outdated.</Text>
+          )}
+        </>
       )}
       <ScrollView style={{ maxHeight: 340 }}>
         {loading && mode === 'ai' ? <Spinner /> : options.map((f, i) => (
@@ -715,6 +786,7 @@ const styles = StyleSheet.create({
   notesText: { fontSize: Typography.sm, color: Colors.textSecondary, lineHeight: 20 },
   notesTextSm: { fontSize: Typography.xs, color: Colors.gray400, marginTop: 6 },
   emptyText: { fontSize: Typography.sm, color: Colors.gray400 },
+  cacheNotice: { fontSize: Typography.xs, color: Colors.warningDark, marginTop: 4, marginBottom: 4 },
   vitalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing[2] },
   vitalBox: { width: '30%', backgroundColor: Colors.gray50, borderRadius: Radius.md, padding: Spacing[2], alignItems: 'center' },
   vitalVal: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },

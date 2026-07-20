@@ -38,7 +38,7 @@ export default function PatientPortalScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing[3] }]}>
         <Text style={styles.title}>Welcome, {user?.name?.split(' ')[0]} 👋</Text>
-        <Text style={styles.subtitle}>Your personal wellness & maternity care portal</Text>
+        <Text style={styles.subtitle}>Your personal maternity care portal</Text>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBarWrap} contentContainerStyle={styles.tabBar}>
