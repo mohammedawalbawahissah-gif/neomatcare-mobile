@@ -10,6 +10,7 @@ import { QueueKinds } from '../../utils/offlineQueue';
 import { cachedFetch } from '../../utils/cachedFetch';
 import { Input, Select, Button, ErrorBanner, Spinner, Badge } from '../../components/ui';
 import { DangerSignPicker } from '../../components/ui/dangerSigns';
+import DictateButton from '../../components/voice/DictateButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -286,10 +287,18 @@ function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
         <Input label="Gestational Age (wks)" value={form.gestational_age_weeks} onChangeText={set('gestational_age_weeks')} placeholder="e.g. 36" keyboardType="number-pad" />
         <Input label="Gravida" value={form.gravida} onChangeText={set('gravida')} placeholder="e.g. 2" keyboardType="number-pad" />
         <Input label="Parity" value={form.parity} onChangeText={set('parity')} placeholder="e.g. 1" keyboardType="number-pad" />
-        <Input label="Obstetric History" value={form.obstetric_history} onChangeText={set('obstetric_history')} placeholder="Relevant prior complications or surgeries…" multiline numberOfLines={2} />
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabelText}>Obstetric History</Text>
+          <DictateButton onResult={(text) => setForm((f) => ({ ...f, obstetric_history: (f.obstetric_history ? f.obstetric_history + ' ' : '') + text }))} />
+        </View>
+        <Input value={form.obstetric_history} onChangeText={set('obstetric_history')} placeholder="Relevant prior complications or surgeries…" multiline numberOfLines={2} />
 
         <Text style={styles.sectionLabel}>Clinical</Text>
-        <Input label="Presenting Complaint" required value={form.presenting_complaint} onChangeText={set('presenting_complaint')} placeholder="Chief complaint in your own words…" multiline numberOfLines={2} />
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabelText}>Presenting Complaint <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
+          <DictateButton onResult={(text) => setForm((f) => ({ ...f, presenting_complaint: (f.presenting_complaint ? f.presenting_complaint + ' ' : '') + text }))} />
+        </View>
+        <Input value={form.presenting_complaint} onChangeText={set('presenting_complaint')} placeholder="Chief complaint in your own words…" multiline numberOfLines={2} />
 
         <Text style={styles.sectionLabel}>Danger Signs</Text>
         <DangerSignPicker value={form.danger_signs} onChange={(v) => setForm((f) => ({ ...f, danger_signs: v }))} />
@@ -537,6 +546,8 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: Typography.xs, color: Colors.gray400, textAlign: 'center' },
   scroll: { padding: Spacing[4], paddingBottom: Spacing[10] },
   sectionLabel: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: Spacing[3], marginBottom: Spacing[2] },
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[1] },
+  fieldLabelText: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
   sectionSub: { textTransform: 'none', fontWeight: Typography.regular },
   hintBox: { backgroundColor: Colors.primaryLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
   cacheNotice: { fontSize: Typography.xs, color: Colors.warningDark, marginBottom: Spacing[2] },

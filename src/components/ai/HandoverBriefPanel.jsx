@@ -13,6 +13,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
+import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -43,11 +44,17 @@ export default function HandoverBriefPanel({ referralId, caseId }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const speakableText = result && [
+    result.brief,
+    result.immediate_actions?.length ? `Immediate actions: ${result.immediate_actions.join('. ')}.` : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="document-text-outline" size={15} color="#ddd6fe" />
         <Text style={styles.headerTitle}>AI Clinical Handover Brief</Text>
+        {result && <SpeakButton text={speakableText} iconColor="#ddd6fe" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         {result && (
           <TouchableOpacity onPress={generate}>
             <Ionicons name="refresh" size={14} color="#c4b5fd" />

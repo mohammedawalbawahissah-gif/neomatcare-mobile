@@ -17,6 +17,8 @@ import { DangerSignPicker, DangerSignList } from '../../components/ui/dangerSign
 import TriageAIPanel from '../../components/ai/TriageAIPanel';
 import HandoverBriefPanel from '../../components/ai/HandoverBriefPanel';
 import TransportRecommendPanel from '../../components/ai/TransportRecommendPanel';
+import SpeakButton from '../../components/voice/SpeakButton';
+import DictateButton from '../../components/voice/DictateButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -113,7 +115,10 @@ export default function CaseDetailScreen({ route, navigation }) {
         </Card>
 
         <Card>
-          <Text style={styles.cardLabel}>Presenting Complaint</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={styles.cardLabel}>Presenting Complaint</Text>
+            <SpeakButton text={c.presenting_complaint} />
+          </View>
           <Text style={styles.notesText}>{c.presenting_complaint}</Text>
         </Card>
 
@@ -586,7 +591,13 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
         )}
       </ScrollView>
       {(mode === 'manual' || needsOverride) && (
-        <Input label="Override Reason" required value={override} onChangeText={setOverride} multiline numberOfLines={2} placeholder="Why this facility?" />
+        <>
+          <View style={styles.fieldLabelRow}>
+            <Text style={styles.fieldLabelText}>Override Reason <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
+            <DictateButton onResult={(text) => setOverride((v) => (v ? v + ' ' : '') + text)} />
+          </View>
+          <Input value={override} onChangeText={setOverride} multiline numberOfLines={2} placeholder="Why this facility?" />
+        </>
       )}
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
@@ -767,6 +778,8 @@ function ConsultationRequestModal({ visible, onClose, onSaved }) {
 }
 
 const styles = StyleSheet.create({
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[1] },
+  fieldLabelText: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

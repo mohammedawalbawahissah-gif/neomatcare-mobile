@@ -68,6 +68,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import AssistantWidget from '../components/ai/AssistantWidget';
 import NotificationBell from '../components/notifications/NotificationBell';
 import SyncQueueBell from '../components/sync/SyncQueueBell';
+import VoiceLanguagePicker from '../components/voice/VoiceLanguagePicker';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -363,6 +364,7 @@ const RootNavigator = () => {
       <RoleTabs />
       <NotificationBell />
       <SyncQueueBell />
+      <VoiceLanguagePicker />
       <AssistantWidget />
     </>
   );

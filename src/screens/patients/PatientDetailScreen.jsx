@@ -16,6 +16,7 @@ import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 import RiskNarratePanel from '../../components/ai/RiskNarratePanel';
 import ANCAnomalyPanel from '../../components/ai/ANCAnomalyPanel';
+import DictateButton from '../../components/voice/DictateButton';
 
 const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' };
 const OUTCOME_COLOR = { survived: Colors.successDark, died: Colors.dangerDark, unknown: Colors.gray400 };
@@ -392,8 +393,16 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
         <Input label="BP Diastolic" value={form.bp_diastolic} onChangeText={set('bp_diastolic')} keyboardType="number-pad" />
         <Input label="Fetal HR (bpm)" value={form.fetal_heart_rate} onChangeText={set('fetal_heart_rate')} keyboardType="number-pad" />
         <Input label="Fundal Height (cm)" value={form.fundal_height_cm} onChangeText={set('fundal_height_cm')} keyboardType="decimal-pad" />
-        <Input label="Notes" value={form.notes} onChangeText={set('notes')} multiline numberOfLines={2} />
-        <Input label="Concerns" value={form.concerns} onChangeText={set('concerns')} multiline numberOfLines={2} placeholder="Any clinical concerns noted…" />
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabelText}>Notes</Text>
+          <DictateButton onResult={(text) => setForm((f) => ({ ...f, notes: (f.notes ? f.notes + ' ' : '') + text }))} />
+        </View>
+        <Input value={form.notes} onChangeText={set('notes')} multiline numberOfLines={2} />
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabelText}>Concerns</Text>
+          <DictateButton onResult={(text) => setForm((f) => ({ ...f, concerns: (f.concerns ? f.concerns + ' ' : '') + text }))} />
+        </View>
+        <Input value={form.concerns} onChangeText={set('concerns')} multiline numberOfLines={2} placeholder="Any clinical concerns noted…" />
       </ScrollView>
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
@@ -499,6 +508,8 @@ function PortalModal({ visible, onClose, patientId, hasPortal, onSaved }) {
 }
 
 const styles = StyleSheet.create({
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing[1] },
+  fieldLabelText: { fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

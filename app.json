@@ -17,21 +17,35 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.neomatcare.mobile"
+      "bundleIdentifier": "com.neomatcare.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "NeoMatCare uses the microphone for voice dictation into case and patient forms.",
+        "NSSpeechRecognitionUsageDescription": "NeoMatCare uses speech recognition for English voice dictation."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d9488"
       },
-      "package": "com.neomatcare.mobile"
+      "package": "com.neomatcare.mobile",
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-notifications",
-      "expo-font"
+      "expo-font",
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "NeoMatCare uses the microphone for voice dictation into case and patient forms.",
+          "speechRecognitionPermission": "NeoMatCare uses speech recognition for English voice dictation."
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -10,6 +10,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
+import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -24,6 +25,12 @@ export default function RiskNarratePanel({ patientId, riskLevel, riskFlags }) {
   const [expanded, setExpanded] = useState(false);
 
   const level = riskLevel?.toLowerCase() || 'low';
+
+  const speakableText = result && [
+    result.summary,
+    result.action_points?.length ? `Action points: ${result.action_points.join('. ')}.` : '',
+    result.urgency_note,
+  ].filter(Boolean).join(' ');
 
   const narrate = async () => {
     setLoading(true); setError(''); setResult(null);
@@ -41,6 +48,7 @@ export default function RiskNarratePanel({ patientId, riskLevel, riskFlags }) {
       <View style={[styles.header, { backgroundColor: RISK_HEADER[level] }]}>
         <Ionicons name="sparkles" size={14} color={Colors.white} />
         <Text style={styles.headerTitle}>AI Risk Explanation</Text>
+        {result && <SpeakButton text={speakableText} iconColor="rgba(255,255,255,0.85)" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         {result && (
           <TouchableOpacity onPress={() => setExpanded((e) => !e)}>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="rgba(255,255,255,0.85)" />
