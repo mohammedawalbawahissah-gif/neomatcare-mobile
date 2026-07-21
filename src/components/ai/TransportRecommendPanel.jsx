@@ -11,6 +11,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
+import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -52,11 +53,22 @@ export default function TransportRecommendPanel({ caseId, availableVehicles = []
     : null;
   const urgencyCfg = URGENCY_CONFIG[result?.data?.urgency_classification] || URGENCY_CONFIG.routine;
 
+  const speakableText = result?.data && [
+    `${urgencyCfg.label?.toLowerCase()} urgency.`,
+    result.data.estimated_dispatch_time_minutes ? `Estimated dispatch time: ${result.data.estimated_dispatch_time_minutes} minutes.` : '',
+    recommended
+      ? `Recommended vehicle: ${recommended.registration_number || recommended.name || result.data.recommended_vehicle_id}.`
+      : (result.data.recommended_vehicle_id ? `Recommended vehicle ID: ${result.data.recommended_vehicle_id}.` : 'No suitable vehicle found.'),
+    result.data.reasoning,
+    result.data.alternatives?.length ? `Alternatives: ${result.data.alternatives.join(', ')}.` : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="car-outline" size={15} color="#fde68a" />
         <Text style={styles.headerTitle}>AI Transport Recommendation</Text>
+        {result && <SpeakButton text={speakableText} iconColor="#fde68a" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         <Text style={styles.headerCount}>{availableVehicles.length} vehicles</Text>
       </View>
 

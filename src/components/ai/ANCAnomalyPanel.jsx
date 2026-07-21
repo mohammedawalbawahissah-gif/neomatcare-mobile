@@ -10,6 +10,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
+import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -43,11 +44,20 @@ export default function ANCAnomalyPanel({ patientId, visitCount }) {
     );
   }
 
+  const speakableText = result?.data && [
+    result.data.summary,
+    result.data.recommended_risk_escalation ? 'Risk level re-computed — patient risk may have escalated.' : '',
+    result.data.patterns?.length
+      ? `Detected patterns: ${result.data.patterns.map((p) => `${p.type.replace(/_/g, ' ')}: ${p.description}`).join('. ')}.`
+      : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="sparkles" size={14} color={Colors.primaryLight} />
         <Text style={styles.headerTitle}>AI ANC Pattern Analysis</Text>
+        {result && <SpeakButton text={speakableText} iconColor="rgba(255,255,255,0.85)" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         <Text style={styles.headerCount}>{visitCount} visits</Text>
       </View>
 
