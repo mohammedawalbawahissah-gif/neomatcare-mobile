@@ -5,6 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   casesApi, facilitiesApi, patientsApi, referralsApi, transportApi, consultationsApi, getErrorMessage,
 } from '../../api/client';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds } from '../../utils/offlineQueue';
+import { cachedFetch } from '../../utils/cachedFetch';
 import { Input, Select, Button, ErrorBanner, Spinner, Badge } from '../../components/ui';
 import { DangerSignPicker } from '../../components/ui/dangerSigns';
 import Colors from '../../constants/colors';
@@ -34,7 +37,7 @@ const INITIAL_FORM = {
 export default function CaseCreateScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const preselectedPatientId = route?.params?.patientId || null;
-  const [step, setStep] = useState(preselectedPatientId ? 1 : 0); // 0 = patient search, 1 = case form, 2 = actions
+  const [step, setStep] = useState(preselectedPatientId ? 1 : 0); // 0 = patient search, 1 = case form, 2 = actions, 3 = queued offline
   const [form, setForm] = useState(INITIAL_FORM);
   const [createdCase, setCreatedCase] = useState(null);
 
@@ -61,8 +64,8 @@ export default function CaseCreateScreen({ navigation, route }) {
           <Ionicons name={step === 2 ? 'close' : 'arrow-back'} size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
         <View>
-          <Text style={styles.headerTitle}>{step === 0 ? 'Find Patient' : step === 1 ? 'New Emergency Case' : 'Next Steps'}</Text>
-          <Text style={styles.headerSub}>{step === 0 ? 'Step 1 of 3' : step === 1 ? 'Step 2 of 3' : 'Step 3 of 3'}</Text>
+          <Text style={styles.headerTitle}>{step === 0 ? 'Find Patient' : step === 1 ? 'New Emergency Case' : step === 3 ? 'Case Saved' : 'Next Steps'}</Text>
+          <Text style={styles.headerSub}>{step === 0 ? 'Step 1 of 3' : step === 1 ? 'Step 2 of 3' : step === 3 ? 'Saved offline' : 'Step 3 of 3'}</Text>
         </View>
         <View style={{ width: 36 }} />
       </View>
@@ -88,11 +91,28 @@ export default function CaseCreateScreen({ navigation, route }) {
           form={form} setForm={setForm}
           onCancel={handleClose}
           onCreated={(c) => { setCreatedCase(c); setStep(2); }}
+          onQueued={() => setStep(3)}
         />
       )}
 
       {step === 2 && createdCase && (
         <ActionPicker caseData={createdCase} navigation={navigation} />
+      )}
+
+      {step === 3 && (
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <View style={styles.successBox}>
+            <Ionicons name="time-outline" size={20} color={Colors.warningDark} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.successTitle, { color: Colors.warningDark }]}>Case saved on this device</Text>
+              <Text style={[styles.successSub, { color: Colors.warningDark }]}>
+                No connection right now — it will be sent to the server automatically once you're back online.
+                Referral, transport, and consultation can be set up for it after that.
+              </Text>
+            </View>
+          </View>
+          <Button title="Done" onPress={handleClose} fullWidth />
+        </ScrollView>
       )}
     </View>
   );
@@ -153,14 +173,22 @@ function PatientSearchStep({ onSelect, onSkip }) {
 }
 
 // ─── Step 1: full case form ─────────────────────────────────────────────────────
-function CaseFormStep({ form, setForm, onCancel, onCreated }) {
+function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
   const [facilities, setFacilities] = useState([]);
+  const [facilitiesFromCache, setFacilitiesFromCache] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { submitOrQueue } = useOfflineQueue();
 
   useEffect(() => {
-    facilitiesApi.list()
-      .then(({ data }) => setFacilities(Array.isArray(data) ? data : (data.results || [])))
+    // Cached so the required "Referring Facility" field still has options
+    // to pick from offline — without this, the case form is unusable with
+    // no signal, which defeats the point of queuing the create itself.
+    cachedFetch('facilities_list', () => facilitiesApi.list().then((r) => r.data))
+      .then(({ data, fromCache }) => {
+        setFacilities(Array.isArray(data) ? data : (data.results || []));
+        setFacilitiesFromCache(fromCache);
+      })
       .catch(() => setError('Could not load facilities.'));
   }, []);
 
@@ -201,8 +229,21 @@ function CaseFormStep({ form, setForm, onCancel, onCreated }) {
             patient_anc_visits: Number(form.patient_anc_visits) || 0,
             ...common,
           };
-      const { data } = await casesApi.create(payload);
-      onCreated(data);
+      const facilityLabel = facilities.find((f) => f.id === form.referring_facility)?.name || 'facility';
+      const result = await submitOrQueue({
+        method: 'post',
+        url: '/api/cases/',
+        data: payload,
+        meta: {
+          kind: QueueKinds.CASE_CREATE,
+          label: `${form.patient_name || 'Case'} — ${facilityLabel}`,
+        },
+      });
+      if (result.queued) {
+        onQueued();
+      } else {
+        onCreated(result.response.data);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally { setLoading(false); }
@@ -233,6 +274,9 @@ function CaseFormStep({ form, setForm, onCancel, onCreated }) {
         )}
 
         <Text style={styles.sectionLabel}>Facility</Text>
+        {facilitiesFromCache && (
+          <Text style={styles.cacheNotice}>Showing facilities saved from your last connection — may be outdated.</Text>
+        )}
         <Select
           label="Referring Facility" required value={form.referring_facility} onValueChange={set('referring_facility')}
           options={facilities.map((f) => ({ value: f.id, label: f.name }))}
@@ -495,6 +539,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.gray400, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: Spacing[3], marginBottom: Spacing[2] },
   sectionSub: { textTransform: 'none', fontWeight: Typography.regular },
   hintBox: { backgroundColor: Colors.primaryLight, borderRadius: Radius.md, padding: Spacing[3], marginBottom: Spacing[3] },
+  cacheNotice: { fontSize: Typography.xs, color: Colors.warningDark, marginBottom: Spacing[2] },
   hintTitle: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.primaryDark },
   hintBody: { fontSize: Typography.xs, color: Colors.primaryDark, marginTop: 2 },
   searchRow: { flexDirection: 'row', alignItems: 'flex-start' },

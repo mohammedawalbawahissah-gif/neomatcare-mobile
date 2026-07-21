@@ -1,11 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { casesApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
-import { Spinner, EmptyState, ErrorBanner } from '../../components/ui';
+import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
+import { QueueKinds, isQueueItemFailed } from '../../utils/offlineQueue';
+import { Spinner, EmptyState, ErrorBanner, Badge } from '../../components/ui';
 import { DangerSignList } from '../../components/ui/dangerSigns';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
@@ -30,6 +32,22 @@ export default function CasesScreen({ navigation }) {
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]         = useState('');
+  const { pending, syncVersion } = useOfflineQueue();
+
+  const queuedCases = pending
+    .filter((item) => item.meta?.kind === QueueKinds.CASE_CREATE)
+    .map((item) => ({
+      id: `queued:${item.id}`,
+      __queued: true,
+      __failed: isQueueItemFailed(item),
+      patient_name: item.data.patient_name,
+      patient_age: item.data.patient_age,
+      gestational_age_weeks: item.data.gestational_age_weeks,
+      danger_signs: item.data.danger_signs || [],
+      created_by_name: null,
+      referring_facility_name: null,
+      created_at: item.createdAt,
+    }));
 
   const load = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -47,27 +65,54 @@ export default function CasesScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const renderItem = ({ item: c }) => (
-    <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => navigation.navigate('CaseDetail', { id: c.id })}>
-      <View style={styles.cardIcon}>
-        <Ionicons name="alert-circle-outline" size={20} color={Colors.dangerDark} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.titleRow}>
-          <Text style={styles.patientLine} numberOfLines={1}>
-            {c.patient_name || 'Patient'} · {c.patient_age}y{c.gestational_age_weeks ? ` · ${c.gestational_age_weeks}wk` : ''}
+  // A queued case disappears from `pending` the instant it syncs — refetch
+  // immediately so the real record replaces it without a visible gap.
+  useEffect(() => { if (syncVersion > 0) load(true); }, [syncVersion]);
+
+  const renderItem = ({ item: c }) => {
+    if (c.__queued) {
+      return (
+        <View style={[styles.card, styles.cardQueued]}>
+          <View style={[styles.cardIcon, { backgroundColor: c.__failed ? Colors.dangerLight : Colors.warningLight }]}>
+            <Ionicons name={c.__failed ? 'alert-circle-outline' : 'time-outline'} size={20} color={c.__failed ? Colors.dangerDark : Colors.warningDark} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={styles.titleRow}>
+              <Text style={styles.patientLine} numberOfLines={1}>
+                {c.patient_name || 'Patient'} · {c.patient_age}y{c.gestational_age_weeks ? ` · ${c.gestational_age_weeks}wk` : ''}
+              </Text>
+              <Badge label={c.__failed ? 'Sync failed' : 'Pending sync'} variant={c.__failed ? 'danger' : 'warning'} />
+            </View>
+            <Text style={styles.metaText}>not yet on server · {timeAgo(new Date(c.created_at).toISOString())}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => navigation.navigate('CaseDetail', { id: c.id })}>
+        <View style={styles.cardIcon}>
+          <Ionicons name="alert-circle-outline" size={20} color={Colors.dangerDark} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.titleRow}>
+            <Text style={styles.patientLine} numberOfLines={1}>
+              {c.patient_name || 'Patient'} · {c.patient_age}y{c.gestational_age_weeks ? ` · ${c.gestational_age_weeks}wk` : ''}
+            </Text>
+          </View>
+          {showCreator && !!c.created_by_name && <Text style={styles.creatorText}>by {c.created_by_name}</Text>}
+          <View style={{ marginTop: 4 }}>
+            <DangerSignList signs={c.danger_signs} />
+          </View>
+          <Text style={styles.metaText}>
+            {c.referring_facility_name} · {timeAgo(c.created_at)}
           </Text>
         </View>
-        {showCreator && !!c.created_by_name && <Text style={styles.creatorText}>by {c.created_by_name}</Text>}
-        <View style={{ marginTop: 4 }}>
-          <DangerSignList signs={c.danger_signs} />
-        </View>
-        <Text style={styles.metaText}>
-          {c.referring_facility_name} · {timeAgo(c.created_at)}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
+
+  const listData = [...queuedCases, ...cases];
 
   return (
     <View style={styles.container}>
@@ -87,7 +132,7 @@ export default function CasesScreen({ navigation }) {
 
       {loading ? (
         <Spinner fullScreen />
-      ) : cases.length === 0 ? (
+      ) : listData.length === 0 ? (
         <EmptyState
           icon="clipboard-outline"
           title="No cases yet"
@@ -96,7 +141,7 @@ export default function CasesScreen({ navigation }) {
         />
       ) : (
         <FlatList
-          data={cases}
+          data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={{ padding: Spacing[4], gap: Spacing[2] }}
@@ -123,6 +168,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: Spacing[3],
     backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing[3], ...Shadow.sm,
   },
+  cardQueued: { borderWidth: 1, borderColor: Colors.warningLight, borderStyle: 'dashed' },
   cardIcon: {
     width: 36, height: 36, borderRadius: Radius.md, backgroundColor: Colors.dangerLight,
     alignItems: 'center', justifyContent: 'center', marginTop: 2,
