@@ -16,7 +16,10 @@ import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 import RiskNarratePanel from '../../components/ai/RiskNarratePanel';
 import ANCAnomalyPanel from '../../components/ai/ANCAnomalyPanel';
-import DictateButton from '../../components/voice/DictateButton';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import ReadAloudTrigger from '../../components/voice/ReadAloudBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
+import useReadAloud from '../../hooks/useReadAloud';
 
 const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' };
 const OUTCOME_COLOR = { survived: Colors.successDark, died: Colors.dangerDark, unknown: Colors.gray400 };
@@ -219,8 +222,17 @@ function OverviewTab({ p }) {
     ['Expected Delivery', fmt(p.expected_delivery_date)],
     ['ANC Visits', p.anc_visits],
   ];
+  const readAloudItems = [
+    { label: 'Patient', text: `${p.patient_name || 'Unnamed patient'}, ${p.age} years, ${p.town || 'location unknown'}` },
+    { label: 'Blood group', text: p.blood_group || 'not recorded' },
+    { label: 'Obstetric summary', text: `Gravida ${p.gravida ?? 'unknown'}, parity ${p.parity ?? 'unknown'}, ${p.anc_visits || 0} ANC visits` },
+    ...((p.next_of_kin_name || p.next_of_kin_phone) ? [{ label: 'Next of kin', text: `${p.next_of_kin_name || 'unnamed'}, ${p.next_of_kin_relationship || ''}, ${p.next_of_kin_phone || 'no phone on file'}` }] : []),
+    ...(p.notes ? [{ label: 'Background notes', text: p.notes }] : []),
+  ];
+  const readAloud = useReadAloud(readAloudItems);
   return (
     <View style={{ gap: Spacing[3] }}>
+      <ReadAloudTrigger readAloud={readAloud} />
       <Card>
         <Text style={styles.cardLabel}>Demographics</Text>
         {demo.map(([k, v]) => (
@@ -358,6 +370,12 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
   const { submitOrQueue } = useOfflineQueue();
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const voiceFields = [
+    { key: 'notes', label: 'Notes', get: () => form.notes, set: set('notes') },
+    { key: 'concerns', label: 'Concerns', get: () => form.concerns, set: set('concerns') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
+
   const handleSave = async () => {
     if (!form.visit_date) { setError('Visit date is required.'); return; }
     setSaving(true); setError('');
@@ -386,6 +404,7 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
     <Modal visible={visible} onClose={onClose} title="Log ANC Visit" size="lg">
       <ScrollView style={{ maxHeight: 480 }}>
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Visit Date" required value={form.visit_date} onChangeText={set('visit_date')} placeholder="YYYY-MM-DD" />
         <Input label="Gestational Age (wks)" value={form.gestational_age_weeks} onChangeText={set('gestational_age_weeks')} keyboardType="number-pad" />
         <Input label="Weight (kg)" value={form.weight_kg} onChangeText={set('weight_kg')} keyboardType="decimal-pad" />
@@ -393,21 +412,16 @@ function AddAncVisitModal({ visible, onClose, patientId, onSaved }) {
         <Input label="BP Diastolic" value={form.bp_diastolic} onChangeText={set('bp_diastolic')} keyboardType="number-pad" />
         <Input label="Fetal HR (bpm)" value={form.fetal_heart_rate} onChangeText={set('fetal_heart_rate')} keyboardType="number-pad" />
         <Input label="Fundal Height (cm)" value={form.fundal_height_cm} onChangeText={set('fundal_height_cm')} keyboardType="decimal-pad" />
-        <View style={styles.fieldLabelRow}>
-          <Text style={styles.fieldLabelText}>Notes</Text>
-          <DictateButton onResult={(text) => setForm((f) => ({ ...f, notes: (f.notes ? f.notes + ' ' : '') + text }))} />
-        </View>
+        <Text style={styles.fieldLabelText}>Notes</Text>
         <Input value={form.notes} onChangeText={set('notes')} multiline numberOfLines={2} />
-        <View style={styles.fieldLabelRow}>
-          <Text style={styles.fieldLabelText}>Concerns</Text>
-          <DictateButton onResult={(text) => setForm((f) => ({ ...f, concerns: (f.concerns ? f.concerns + ' ' : '') + text }))} />
-        </View>
+        <Text style={styles.fieldLabelText}>Concerns</Text>
         <Input value={form.concerns} onChangeText={set('concerns')} multiline numberOfLines={2} placeholder="Any clinical concerns noted…" />
       </ScrollView>
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Log Visit" onPress={handleSave} loading={saving} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }
@@ -429,6 +443,8 @@ function ConsentModal({ visible, onClose, patientId, onSaved }) {
   const [form, setForm] = useState({ consent_type: 'data_use', action: 'granted', notes: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [{ key: 'notes', label: 'Notes', get: () => form.notes, set: (v) => setForm((f) => ({ ...f, notes: v })) }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleSave = async () => {
     setSaving(true); setError('');
@@ -443,6 +459,7 @@ function ConsentModal({ visible, onClose, patientId, onSaved }) {
   return (
     <Modal visible={visible} onClose={onClose} title="Record Consent">
       <ErrorBanner message={error} onDismiss={() => setError('')} />
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Select label="Consent Type" required value={form.consent_type} onValueChange={(v) => setForm((f) => ({ ...f, consent_type: v }))} options={CONSENT_TYPES} />
       <Select label="Action" required value={form.action} onValueChange={(v) => setForm((f) => ({ ...f, action: v }))} options={CONSENT_ACTIONS} />
       <Input label="Notes" value={form.notes} onChangeText={(v) => setForm((f) => ({ ...f, notes: v }))} multiline numberOfLines={2} placeholder="Additional context…" />
@@ -450,6 +467,7 @@ function ConsentModal({ visible, onClose, patientId, onSaved }) {
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Record Consent" onPress={handleSave} loading={saving} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

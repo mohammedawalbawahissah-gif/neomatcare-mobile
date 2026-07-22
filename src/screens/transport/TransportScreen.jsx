@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { transportApi, usersApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -219,6 +221,13 @@ function VehicleFormModal({ visible, onClose, vehicle, onSaved }) {
   }, [visible, vehicle]);
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const voiceFields = [
+    { key: 'registration', label: 'Registration Number', get: () => form.registration, set: set('registration') },
+    { key: 'make', label: 'Make', get: () => form.make, set: set('make') },
+    { key: 'model', label: 'Model', get: () => form.model, set: set('model') },
+    { key: 'notes', label: 'Notes', get: () => form.notes, set: set('notes') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleSubmit = async () => {
     if (!form.registration.trim()) { setError('Registration number is required.'); return; }
@@ -242,6 +251,7 @@ function VehicleFormModal({ visible, onClose, vehicle, onSaved }) {
     <Modal visible={visible} onClose={onClose} title={isEdit ? 'Edit Vehicle' : 'Register Vehicle'} size="lg">
       <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Registration Number" required value={form.registration} onChangeText={set('registration')} placeholder="e.g. GR-1234-21" />
         <Select label="Vehicle Type" required value={form.vehicle_type} onValueChange={set('vehicle_type')} options={TYPE_OPTIONS} />
         <Select label="Status" value={form.status} onValueChange={set('status')} options={VEHICLE_STATUS_OPTIONS} />
@@ -260,6 +270,7 @@ function VehicleFormModal({ visible, onClose, vehicle, onSaved }) {
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title={isEdit ? 'Save Changes' : 'Register Vehicle'} onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }
@@ -298,6 +309,10 @@ export function RequestStatusModal({ visible, onClose, request, onUpdated }) {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Hook must run unconditionally on every render, so it's declared before
+  // the `if (!request) return null` guard below.
+  const voiceFields = [{ key: 'notes', label: 'Notes', get: () => notes, set: setNotes }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const options = REQUEST_TRANSITIONS[request?.status] || [];
 
@@ -322,11 +337,13 @@ export function RequestStatusModal({ visible, onClose, request, onUpdated }) {
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       <Select label="Action" required value={newStatus} onValueChange={setNewStatus} placeholder="— Select —" options={options.map((o) => ({ value: o.v, label: o.l }))} />
       {options.length === 0 && <Text style={styles.hintText}>No transitions available for status: {request.status}</Text>}
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={2} placeholder="Any notes for this update…" />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Update" onPress={handleSubmit} loading={saving} disabled={!newStatus} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

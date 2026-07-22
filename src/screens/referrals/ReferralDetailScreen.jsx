@@ -5,6 +5,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { referralsApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
+import ReadAloudTrigger from '../../components/voice/ReadAloudBar';
+import useReadAloud from '../../hooks/useReadAloud';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 import HandoverBriefPanel from '../../components/ai/HandoverBriefPanel';
@@ -45,6 +49,17 @@ export default function ReferralDetailScreen({ route, navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // Hook must run unconditionally on every render, so it's declared before
+  // the loading/error early-returns below, using a safe fallback.
+  const rSafe = r || {};
+  const readAloudItems = [
+    { label: 'Route', text: `From ${rSafe.referring_facility_name || 'unknown'} to ${rSafe.receiving_facility_name || 'unknown'}` },
+    ...(rSafe.override_reason ? [{ label: 'Override reason', text: rSafe.override_reason }] : []),
+    ...((rSafe.maternal_outcome && rSafe.maternal_outcome !== 'unknown') || (rSafe.neonatal_outcome && rSafe.neonatal_outcome !== 'unknown') ? [{ label: 'Outcomes', text: `Maternal: ${rSafe.maternal_outcome}, Neonatal: ${rSafe.neonatal_outcome}` }] : []),
+    ...(rSafe.outcome_notes ? [{ label: 'Outcome notes', text: rSafe.outcome_notes }] : []),
+  ];
+  const readAloud = useReadAloud(readAloudItems);
+
   if (loading) return <Spinner fullScreen />;
   if (error || !r) {
     return (
@@ -63,6 +78,7 @@ export default function ReferralDetailScreen({ route, navigation }) {
       <Header navigation={navigation} status={r.status} />
       <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10], gap: Spacing[3] }}>
         <Text style={styles.idText}>{r.id}</Text>
+        <ReadAloudTrigger readAloud={readAloud} />
 
         <HandoverBriefPanel referralId={r.id} />
 
@@ -165,6 +181,8 @@ function StatusUpdateModal({ visible, onClose, referral, onUpdated }) {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [{ key: 'note', label: 'Note', get: () => note, set: setNote }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   React.useEffect(() => { if (visible) { setNewStatus(''); setNote(''); setError(''); } }, [visible]);
 
@@ -184,11 +202,13 @@ function StatusUpdateModal({ visible, onClose, referral, onUpdated }) {
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       <Select label="New Status" required value={newStatus} onValueChange={setNewStatus}
         placeholder="— Select —" options={validNext.map((s) => ({ value: s, label: STATUS_LABELS[s] || s }))} />
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Note (optional)" value={note} onChangeText={setNote} multiline numberOfLines={2} placeholder="Optional note about this transition…" />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Update" onPress={handleSubmit} loading={saving} disabled={!newStatus} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }
@@ -197,6 +217,8 @@ function OutcomeModal({ visible, onClose, referral, onUpdated }) {
   const [form, setForm] = useState({ maternal_outcome: 'unknown', neonatal_outcome: 'unknown', outcome_notes: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [{ key: 'outcome_notes', label: 'Outcome Notes', get: () => form.outcome_notes, set: (v) => setForm((f) => ({ ...f, outcome_notes: v })) }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const OUTCOME_OPTS = [{ value: 'unknown', label: 'Unknown' }, { value: 'survived', label: 'Survived' }, { value: 'died', label: 'Died' }];
 
@@ -215,11 +237,13 @@ function OutcomeModal({ visible, onClose, referral, onUpdated }) {
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       <Select label="Maternal Outcome" required value={form.maternal_outcome} onValueChange={(v) => setForm((f) => ({ ...f, maternal_outcome: v }))} options={OUTCOME_OPTS} />
       <Select label="Neonatal Outcome" required value={form.neonatal_outcome} onValueChange={(v) => setForm((f) => ({ ...f, neonatal_outcome: v }))} options={OUTCOME_OPTS} />
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Outcome Notes" value={form.outcome_notes} onChangeText={(v) => setForm((f) => ({ ...f, outcome_notes: v }))} multiline numberOfLines={2} placeholder="Additional notes…" />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Save Outcome" onPress={handleSubmit} loading={saving} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

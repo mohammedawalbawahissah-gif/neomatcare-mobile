@@ -6,6 +6,8 @@ import { getErrorMessage } from '../../api/client';
 import { useOfflineQueue } from '../../contexts/OfflineQueueContext';
 import { QueueKinds } from '../../utils/offlineQueue';
 import { Input, Select, Button, ErrorBanner } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing } from '../../constants/theme';
 
@@ -25,6 +27,20 @@ export default function PatientCreateScreen({ navigation }) {
   const [error, setError]   = useState('');
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Every free-text field on this form, in display order. Blood group
+  // (dropdown), age/gravida/parity (numeric), and dates are excluded.
+  const voiceFields = [
+    { key: 'patient_name', label: 'Full Name', get: () => form.patient_name, set: set('patient_name') },
+    { key: 'hospital_id', label: 'Hospital / Folder ID', get: () => form.hospital_id, set: set('hospital_id') },
+    { key: 'patient_phone_number', label: 'Phone Number', get: () => form.patient_phone_number, set: set('patient_phone_number') },
+    { key: 'town', label: 'Town / Community', get: () => form.town, set: set('town') },
+    { key: 'next_of_kin_name', label: 'Next of Kin Name', get: () => form.next_of_kin_name, set: set('next_of_kin_name') },
+    { key: 'next_of_kin_phone', label: 'Next of Kin Phone', get: () => form.next_of_kin_phone, set: set('next_of_kin_phone') },
+    { key: 'next_of_kin_relationship', label: 'Next of Kin Relationship', get: () => form.next_of_kin_relationship, set: set('next_of_kin_relationship') },
+    { key: 'notes', label: 'Notes', get: () => form.notes, set: set('notes') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleSave = async () => {
     if (!form.age) { setError('Age is required.'); return; }
@@ -72,6 +88,7 @@ export default function PatientCreateScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
 
         <Text style={styles.sectionLabel}>Identity</Text>
         <Input label="Full Name" value={form.patient_name} onChangeText={set('patient_name')} placeholder="Patient's full name" />
@@ -102,6 +119,7 @@ export default function PatientCreateScreen({ navigation }) {
         <Button title="Create Patient" onPress={handleSave} loading={saving} fullWidth icon="person-add" style={{ marginTop: Spacing[3] }} />
         <Button title="Cancel" onPress={() => navigation.goBack()} variant="ghost" fullWidth style={{ marginTop: Spacing[2] }} />
       </ScrollView>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </KeyboardAvoidingView>
   );
 }

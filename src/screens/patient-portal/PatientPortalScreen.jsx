@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { patientPortalApi, transportApi, wellnessApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -241,6 +243,8 @@ function CycleTrackerTab() {
   const [form, setForm] = useState({ period_start: '', period_end: '', notes: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const cycleVoiceFields = [{ key: 'notes', label: 'Notes', get: () => form.notes, set: (v) => setForm((f) => ({ ...f, notes: v })) }];
+  const cycleVoiceEntry = useVoiceEntry(cycleVoiceFields);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -321,8 +325,10 @@ function CycleTrackerTab() {
         <ErrorBanner message={error} onDismiss={() => setError('')} />
         <Input label="Start date" required value={form.period_start} onChangeText={(v) => setForm((f) => ({ ...f, period_start: v }))} placeholder="YYYY-MM-DD" icon="calendar-outline" />
         <Input label="End date (optional)" value={form.period_end} onChangeText={(v) => setForm((f) => ({ ...f, period_end: v }))} placeholder="YYYY-MM-DD" icon="calendar-outline" />
+        <VoiceEntryTrigger onPress={cycleVoiceEntry.start} count={cycleVoiceFields.length} />
         <Input label="Notes (optional)" value={form.notes} onChangeText={(v) => setForm((f) => ({ ...f, notes: v }))} placeholder="Any symptoms or notes" />
         <Button title="Log entry" icon="add" onPress={handleSubmit} loading={submitting} fullWidth />
+        <VoiceEntryBar voiceEntry={cycleVoiceEntry} />
       </Card>
 
       <Card>
@@ -350,6 +356,11 @@ function ReviewsTab() {
   const [success, setSuccess] = useState(false);
   const [form, setForm] = useState({ visit_type: 'anc', period: 'pre_labour', facility_name: '', rating: 0, comments: '' });
   const [error, setError] = useState('');
+  const reviewVoiceFields = [
+    { key: 'facility_name', label: 'Facility Name', get: () => form.facility_name, set: (v) => setForm((f) => ({ ...f, facility_name: v })) },
+    { key: 'comments', label: 'Comments', get: () => form.comments, set: (v) => setForm((f) => ({ ...f, comments: v })) },
+  ];
+  const reviewVoiceEntry = useVoiceEntry(reviewVoiceFields);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -398,6 +409,7 @@ function ReviewsTab() {
           <ErrorBanner message={error} onDismiss={() => setError('')} />
           <Select label="Visit Type" value={form.visit_type} onValueChange={(v) => setForm((f) => ({ ...f, visit_type: v }))} options={VISIT_TYPES} />
           <Select label="Period" value={form.period} onValueChange={(v) => setForm((f) => ({ ...f, period: v }))} options={[{ value: 'pre_labour', label: 'Pre-Labour' }, { value: 'post_labour', label: 'Post-Labour' }]} />
+          <VoiceEntryTrigger onPress={reviewVoiceEntry.start} count={reviewVoiceFields.length} />
           <Input label="Facility Name (optional)" value={form.facility_name} onChangeText={(v) => setForm((f) => ({ ...f, facility_name: v }))} placeholder="e.g. Tamale Teaching Hospital" />
           <Text style={styles.fieldLabel}>Rating <Text style={{ color: Colors.danger }}>*</Text></Text>
           <StarPicker value={form.rating} onChange={(r) => setForm((f) => ({ ...f, rating: r }))} />
@@ -405,6 +417,7 @@ function ReviewsTab() {
             <Input label="Comments (optional)" value={form.comments} onChangeText={(v) => setForm((f) => ({ ...f, comments: v }))} multiline numberOfLines={3} placeholder="Tell us about your experience…" />
           </View>
           <Button title="Submit Review" icon="send" onPress={handleSubmit} loading={submitting} fullWidth />
+          <VoiceEntryBar voiceEntry={reviewVoiceEntry} />
         </Card>
       )}
 
@@ -440,6 +453,12 @@ function OnCallTab() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [
+    { key: 'description', label: 'Describe your situation', get: () => form.description, set: (v) => setForm((f) => ({ ...f, description: v })) },
+    { key: 'location', label: 'Your location / address', get: () => form.location, set: (v) => setForm((f) => ({ ...f, location: v })) },
+    { key: 'preferred_time', label: 'Preferred time', get: () => form.preferred_time, set: (v) => setForm((f) => ({ ...f, preferred_time: v })) },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleSubmit = async () => {
     setError('');
@@ -485,10 +504,12 @@ function OnCallTab() {
           ))}
         </View>
 
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Describe your situation" required value={form.description} onChangeText={(v) => setForm((f) => ({ ...f, description: v }))} multiline numberOfLines={3} placeholder="e.g. I am 36 weeks pregnant and having severe headaches." />
         <Input label="Your location / address (optional)" value={form.location} onChangeText={(v) => setForm((f) => ({ ...f, location: v }))} placeholder="e.g. Tamale, Choggu area, near the mosque" icon="location-outline" />
         <Input label="Preferred time (optional)" value={form.preferred_time} onChangeText={(v) => setForm((f) => ({ ...f, preferred_time: v }))} placeholder="e.g. This afternoon" icon="calendar-outline" />
         <Button title="Submit Request" icon="send" onPress={handleSubmit} loading={submitting} fullWidth />
+        <VoiceEntryBar voiceEntry={voiceEntry} />
       </Card>
     </View>
   );
@@ -506,6 +527,11 @@ function TransportTab() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [
+    { key: 'pickup_address', label: 'Your pickup address', get: () => form.pickup_address, set: (v) => setForm((f) => ({ ...f, pickup_address: v })) },
+    { key: 'notes', label: 'Notes', get: () => form.notes, set: (v) => setForm((f) => ({ ...f, notes: v })) },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -553,6 +579,7 @@ function TransportTab() {
         <ErrorBanner message={error} onDismiss={() => setError('')} />
 
         <Select label="Emergency type" required value={form.emergency_type} onValueChange={(v) => setForm((f) => ({ ...f, emergency_type: v }))} options={EMERGENCY_TYPES.map((t) => ({ value: t, label: t }))} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Your pickup address" required value={form.pickup_address} onChangeText={(v) => setForm((f) => ({ ...f, pickup_address: v }))} placeholder="e.g. Tamale, Choggu Yapala, near water tank" icon="location-outline" />
         {!loading && vehicles.length > 0 && (
           <Select
@@ -563,6 +590,7 @@ function TransportTab() {
         )}
         <Input label="Additional notes (optional)" value={form.notes} onChangeText={(v) => setForm((f) => ({ ...f, notes: v }))} multiline numberOfLines={2} placeholder="e.g. I am alone, gate is blue, call on arrival" />
         <Button title="Request Transport Now" icon="car" variant="danger" onPress={handleSubmit} loading={submitting} fullWidth />
+        <VoiceEntryBar voiceEntry={voiceEntry} />
       </Card>
 
       <View style={styles.rowBetween}>

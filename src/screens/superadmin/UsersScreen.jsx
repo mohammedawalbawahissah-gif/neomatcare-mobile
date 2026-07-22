@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { usersApi, facilitiesApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState, Avatar } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -160,6 +162,14 @@ function UserFormModal({ visible, onClose, user, facilities, currentUser, onSave
   }, [visible, user]);
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const voiceFields = [
+    { key: 'name', label: 'Full Name', get: () => form.name, set: set('name') },
+    ...(form.role === 'driver' ? [
+      { key: 'phone_number', label: 'Phone Number', get: () => form.phone_number, set: set('phone_number') },
+      { key: 'license_number', label: 'License Number', get: () => form.license_number, set: set('license_number') },
+    ] : []),
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
   const needsFacility = FACILITY_ROLES.includes(form.role);
   const availableRoles = isFacilityAdminCreator
     ? Object.entries(ROLE_LABELS).filter(([v]) => v !== 'superadmin')
@@ -189,6 +199,7 @@ function UserFormModal({ visible, onClose, user, facilities, currentUser, onSave
     <Modal visible={visible} onClose={onClose} title={isEdit ? 'Edit User' : 'Create New User'} size="lg">
       <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Full Name" required value={form.name} onChangeText={set('name')} placeholder="Full name" />
         <Input label="Email" required value={form.email} onChangeText={set('email')} placeholder="user@facility.gh" keyboardType="email-address" autoCapitalize="none" />
         <Select label="Role" required value={form.role} onValueChange={set('role')} options={availableRoles.map(([v, l]) => ({ value: v, label: l }))} />
@@ -217,6 +228,7 @@ function UserFormModal({ visible, onClose, user, facilities, currentUser, onSave
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title={isEdit ? 'Save Changes' : 'Create User'} onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

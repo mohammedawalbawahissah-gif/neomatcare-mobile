@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { consultationsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -167,6 +169,17 @@ function AddSpecialistModal({ visible, onClose, onCreated }) {
   const [error, setError] = useState('');
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const voiceFields = [
+    { key: 'name', label: 'Specialist Name', get: () => form.name, set: set('name') },
+    { key: 'professional_pin', label: 'Professional Pin', get: () => form.professional_pin, set: set('professional_pin') },
+    { key: 'qualification', label: 'Qualification', get: () => form.qualification, set: set('qualification') },
+    { key: 'specialist_phone', label: 'Phone', get: () => form.specialist_phone, set: set('specialist_phone') },
+    { key: 'whatsapp_number', label: 'WhatsApp', get: () => form.whatsapp_number, set: set('whatsapp_number') },
+    { key: 'emergency_contact', label: 'Emergency Contact', get: () => form.emergency_contact, set: set('emergency_contact') },
+    { key: 'bio', label: 'Bio', get: () => form.bio, set: set('bio') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
+
   const handleSubmit = async () => {
     if (!form.name.trim()) { setError('Specialist name is required.'); return; }
     if (!form.professional_pin.trim()) { setError('Professional pin is required.'); return; }
@@ -189,6 +202,7 @@ function AddSpecialistModal({ visible, onClose, onCreated }) {
     <Modal visible={visible} onClose={onClose} title="Add Specialist Profile" size="lg">
       <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Specialist Name" required value={form.name} onChangeText={set('name')} placeholder="e.g. Dr. Ama Owusu" />
         <Input label="Professional Pin" required value={form.professional_pin} onChangeText={set('professional_pin')} placeholder="e.g. MDC/PN/XXXXX" />
         <Select label="Specialty" required value={form.specialty} onValueChange={set('specialty')} options={SPECIALTIES} />
@@ -204,6 +218,7 @@ function AddSpecialistModal({ visible, onClose, onCreated }) {
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Create Profile" onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

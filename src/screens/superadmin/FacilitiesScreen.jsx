@@ -4,6 +4,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 're
 import { Ionicons } from '@expo/vector-icons';
 import { facilitiesApi, getErrorMessage } from '../../api/client';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, EmptyState } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -136,6 +138,13 @@ function FacilityFormModal({ visible, onClose, facility, onSaved }) {
   }, [visible, facility]);
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const voiceFields = [
+    { key: 'name', label: 'Facility Name', get: () => form.name, set: set('name') },
+    { key: 'phone', label: 'Phone', get: () => form.phone, set: set('phone') },
+    { key: 'district', label: 'District', get: () => form.district, set: set('district') },
+    { key: 'region', label: 'Region', get: () => form.region, set: set('region') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleSubmit = async () => {
     if (!form.name.trim()) { setError('Facility name is required.'); return; }
@@ -161,6 +170,7 @@ function FacilityFormModal({ visible, onClose, facility, onSaved }) {
     <Modal visible={visible} onClose={onClose} title={isEdit ? 'Edit Facility' : 'Register New Facility'} size="lg">
       <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
         <Input label="Facility Name" required value={form.name} onChangeText={set('name')} placeholder="e.g. Korle-Bu Teaching Hospital" />
         <Select label="Level" required value={form.level} onValueChange={set('level')} options={LEVEL_OPTIONS} />
         <Input label="Phone" value={form.phone} onChangeText={set('phone')} placeholder="+233 ..." keyboardType="phone-pad" />
@@ -181,6 +191,7 @@ function FacilityFormModal({ visible, onClose, facility, onSaved }) {
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title={isEdit ? 'Save Changes' : 'Register Facility'} onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }

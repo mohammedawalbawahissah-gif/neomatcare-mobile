@@ -19,7 +19,8 @@ import HandoverBriefPanel from '../../components/ai/HandoverBriefPanel';
 import TransportRecommendPanel from '../../components/ai/TransportRecommendPanel';
 import ReadAloudTrigger from '../../components/voice/ReadAloudBar';
 import useReadAloud from '../../hooks/useReadAloud';
-import DictateButton from '../../components/voice/DictateButton';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -487,6 +488,8 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
   const [createdReferral, setCreatedReferral] = useState(null);
   const [queuedOffline, setQueuedOffline] = useState(false);
   const { submitOrQueue } = useOfflineQueue();
+  const overrideVoiceFields = [{ key: 'override', label: 'Override Reason', get: () => override, set: setOverride }];
+  const overrideVoiceEntry = useVoiceEntry(overrideVoiceFields);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -606,10 +609,8 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
       </ScrollView>
       {(mode === 'manual' || needsOverride) && (
         <>
-          <View style={styles.fieldLabelRow}>
-            <Text style={styles.fieldLabelText}>Override Reason <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
-            <DictateButton onResult={(text) => setOverride((v) => (v ? v + ' ' : '') + text)} />
-          </View>
+          <Text style={styles.fieldLabelText}>Override Reason <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
+          <VoiceEntryTrigger onPress={overrideVoiceEntry.start} count={overrideVoiceFields.length} />
           <Input value={override} onChangeText={setOverride} multiline numberOfLines={2} placeholder="Why this facility?" />
         </>
       )}
@@ -617,6 +618,7 @@ function ReferralCreateModal({ visible, onClose, caseData: c, onSaved }) {
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Create Referral" onPress={handleCreate} loading={creating} disabled={!selected || ((mode === 'manual' || needsOverride) && !override)} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={overrideVoiceEntry} />
     </Modal>
   );
 }
@@ -715,6 +717,8 @@ function TransportRequestModal({ visible, onClose, onSaved, caseId }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const notesVoiceFields = [{ key: 'notes', label: 'Notes', get: () => notes, set: setNotes }];
+  const notesVoiceEntry = useVoiceEntry(notesVoiceFields);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -744,11 +748,13 @@ function TransportRequestModal({ visible, onClose, onSaved, caseId }) {
         <Select label="Vehicle" value={vehicle} onValueChange={setVehicle} placeholder="Any available"
           options={[{ value: '', label: '— Any available —' }, ...available.map((v) => ({ value: v.id, label: `${v.registration} (${v.vehicle_type?.replace(/_/g, ' ')})` }))]} />
       )}
+      <VoiceEntryTrigger onPress={notesVoiceEntry.start} count={notesVoiceFields.length} />
       <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={2} />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Request" onPress={handleSubmit} loading={saving} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={notesVoiceEntry} />
     </Modal>
   );
 }
@@ -760,6 +766,8 @@ function ConsultationRequestModal({ visible, onClose, onSaved }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const notesVoiceFields = [{ key: 'notes', label: 'Notes', get: () => notes, set: setNotes }];
+  const notesVoiceEntry = useVoiceEntry(notesVoiceFields);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -782,11 +790,13 @@ function ConsultationRequestModal({ visible, onClose, onSaved }) {
         <Select label="Specialist" value={specialist} onValueChange={setSpecialist} placeholder="Any available"
           options={[{ value: '', label: '— Any available —' }, ...specialists.map((s) => ({ value: s.id, label: `${s.user_name} · ${s.specialty_display || s.specialty}` }))]} />
       )}
+      <VoiceEntryTrigger onPress={notesVoiceEntry.start} count={notesVoiceFields.length} />
       <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={2} />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Request" onPress={handleSubmit} loading={saving} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={notesVoiceEntry} />
     </Modal>
   );
 }

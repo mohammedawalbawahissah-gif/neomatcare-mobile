@@ -9,6 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { consultationsApi, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Select, Button, Modal, Spinner, Badge, ErrorBanner, Card } from '../../components/ui';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -257,6 +259,8 @@ function StatusUpdateModal({ visible, onClose, consultation, onUpdated }) {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [{ key: 'notes', label: 'Notes', get: () => notes, set: setNotes }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   React.useEffect(() => { if (visible) { setStatus(''); setNotes(''); setError(''); } }, [visible]);
 
@@ -277,11 +281,13 @@ function StatusUpdateModal({ visible, onClose, consultation, onUpdated }) {
     <Modal visible={visible} onClose={onClose} title="Update Consultation">
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       <Select label="Action" required value={status} onValueChange={setStatus} placeholder="— Select —" options={STATUS_OPTIONS} />
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={3} placeholder="Clinical notes, findings, recommendations…" />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Confirm" onPress={handleSubmit} loading={saving} disabled={!status} style={{ flex: 1 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }
@@ -290,6 +296,8 @@ function EditNotesModal({ visible, onClose, consultation, onUpdated }) {
   const [notes, setNotes] = useState(consultation?.notes || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const voiceFields = [{ key: 'notes', label: 'Clinical Notes', get: () => notes, set: setNotes }];
+  const voiceEntry = useVoiceEntry(voiceFields);
 
   React.useEffect(() => { if (visible) setNotes(consultation?.notes || ''); }, [visible, consultation]);
 
@@ -306,11 +314,13 @@ function EditNotesModal({ visible, onClose, consultation, onUpdated }) {
   return (
     <Modal visible={visible} onClose={onClose} title="Edit Consultation">
       <ErrorBanner message={error} onDismiss={() => setError('')} />
+      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Clinical Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={4} placeholder="Clinical findings, recommendations…" />
       <View style={styles.modalActions}>
         <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
         <Button title="Save Changes" icon="save-outline" onPress={handleSubmit} loading={saving} style={{ flex: 2 }} />
       </View>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </Modal>
   );
 }
