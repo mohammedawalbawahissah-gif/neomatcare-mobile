@@ -10,7 +10,8 @@ import { QueueKinds } from '../../utils/offlineQueue';
 import { cachedFetch } from '../../utils/cachedFetch';
 import { Input, Select, Button, ErrorBanner, Spinner, Badge } from '../../components/ui';
 import { DangerSignPicker } from '../../components/ui/dangerSigns';
-import DictateButton from '../../components/voice/DictateButton';
+import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
+import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -196,6 +197,22 @@ function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const setVital = (k) => (v) => setForm((f) => ({ ...f, vital_signs: { ...f.vital_signs, [k]: v } }));
 
+  // Every free-text field on this form, in the order it's displayed.
+  // Dropdowns (blood group, membranes), the danger-sign multi-select, and
+  // number-only fields (age, ANC visits, gestational age, gravida, parity,
+  // vitals, fetal heart rate) are intentionally excluded — see useVoiceEntry.
+  const voiceFields = [
+    ...(!form.patient_id ? [
+      { key: 'patient_name', label: 'Patient Name', get: () => form.patient_name, set: set('patient_name') },
+      { key: 'hospital_id', label: 'Hospital ID', get: () => form.hospital_id, set: set('hospital_id') },
+      { key: 'patient_phone_number', label: 'Phone Number', get: () => form.patient_phone_number, set: set('patient_phone_number') },
+      { key: 'patient_town', label: 'Town', get: () => form.patient_town, set: set('patient_town') },
+    ] : []),
+    { key: 'obstetric_history', label: 'Obstetric History', get: () => form.obstetric_history, set: set('obstetric_history') },
+    { key: 'presenting_complaint', label: 'Presenting Complaint', get: () => form.presenting_complaint, set: set('presenting_complaint') },
+  ];
+  const voiceEntry = useVoiceEntry(voiceFields);
+
   const handleSubmit = async () => {
     if (!form.patient_age) { setError('Patient age is required.'); return; }
     if (!form.presenting_complaint.trim()) { setError('Presenting complaint is required.'); return; }
@@ -255,6 +272,8 @@ function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} onDismiss={() => setError('')} />
 
+        <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
+
         {!form.patient_id ? (
           <>
             <Text style={styles.sectionLabel}>Patient Identity</Text>
@@ -287,17 +306,11 @@ function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
         <Input label="Gestational Age (wks)" value={form.gestational_age_weeks} onChangeText={set('gestational_age_weeks')} placeholder="e.g. 36" keyboardType="number-pad" />
         <Input label="Gravida" value={form.gravida} onChangeText={set('gravida')} placeholder="e.g. 2" keyboardType="number-pad" />
         <Input label="Parity" value={form.parity} onChangeText={set('parity')} placeholder="e.g. 1" keyboardType="number-pad" />
-        <View style={styles.fieldLabelRow}>
-          <Text style={styles.fieldLabelText}>Obstetric History</Text>
-          <DictateButton onResult={(text) => setForm((f) => ({ ...f, obstetric_history: (f.obstetric_history ? f.obstetric_history + ' ' : '') + text }))} />
-        </View>
+        <Text style={styles.fieldLabelText}>Obstetric History</Text>
         <Input value={form.obstetric_history} onChangeText={set('obstetric_history')} placeholder="Relevant prior complications or surgeries…" multiline numberOfLines={2} />
 
         <Text style={styles.sectionLabel}>Clinical</Text>
-        <View style={styles.fieldLabelRow}>
-          <Text style={styles.fieldLabelText}>Presenting Complaint <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
-          <DictateButton onResult={(text) => setForm((f) => ({ ...f, presenting_complaint: (f.presenting_complaint ? f.presenting_complaint + ' ' : '') + text }))} />
-        </View>
+        <Text style={styles.fieldLabelText}>Presenting Complaint <Text style={{ color: Colors.dangerDark }}>*</Text></Text>
         <Input value={form.presenting_complaint} onChangeText={set('presenting_complaint')} placeholder="Chief complaint in your own words…" multiline numberOfLines={2} />
 
         <Text style={styles.sectionLabel}>Danger Signs</Text>
@@ -313,6 +326,7 @@ function CaseFormStep({ form, setForm, onCancel, onCreated, onQueued }) {
         <Button title="Create Case" onPress={handleSubmit} loading={loading} fullWidth icon="arrow-forward" iconPosition="right" style={{ marginTop: Spacing[3] }} />
         <Button title="Cancel" variant="ghost" fullWidth onPress={onCancel} style={{ marginTop: Spacing[2] }} />
       </ScrollView>
+      <VoiceEntryBar voiceEntry={voiceEntry} />
     </KeyboardAvoidingView>
   );
 }

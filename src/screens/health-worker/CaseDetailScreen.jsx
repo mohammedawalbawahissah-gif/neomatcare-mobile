@@ -17,7 +17,8 @@ import { DangerSignPicker, DangerSignList } from '../../components/ui/dangerSign
 import TriageAIPanel from '../../components/ai/TriageAIPanel';
 import HandoverBriefPanel from '../../components/ai/HandoverBriefPanel';
 import TransportRecommendPanel from '../../components/ai/TransportRecommendPanel';
-import SpeakButton from '../../components/voice/SpeakButton';
+import ReadAloudTrigger from '../../components/voice/ReadAloudBar';
+import useReadAloud from '../../hooks/useReadAloud';
 import DictateButton from '../../components/voice/DictateButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
@@ -91,11 +92,27 @@ export default function CaseDetailScreen({ route, navigation }) {
 
   const vitals = Object.entries(c.vital_signs || {}).filter(([, v]) => v !== null && v !== '');
 
+  // Clinically load-bearing content, top-to-bottom as displayed. Labels are
+  // spoken, decorative chrome (icons, badges, empty/unknown fields) is not.
+  const readAloudItems = [
+    { label: 'Patient', text: `${c.patient?.patient_name || 'Unnamed patient'}, age ${c.patient?.age || 'unknown'}, ${c.patient?.town || 'location unknown'}` },
+    ...(c.gestational_age_weeks ? [{ label: 'Gestational age', text: `${c.gestational_age_weeks} weeks` }] : []),
+    ...(c.presenting_complaint ? [{ label: 'Presenting complaint', text: c.presenting_complaint }] : []),
+    ...((c.danger_signs || []).length ? [{ label: 'Danger signs', text: c.danger_signs.join(', ').replace(/_/g, ' ') }] : []),
+    ...(vitals.length ? [{ label: 'Vital signs', text: vitals.map(([k, v]) => `${VITAL_LABELS[k] || k}: ${v}`).join(', ') }] : []),
+    ...(c.fetal_heart_rate ? [{ label: 'Fetal heart rate', text: `${c.fetal_heart_rate}` }] : []),
+    ...(c.obstetric_history ? [{ label: 'Obstetric history', text: c.obstetric_history }] : []),
+    ...(c.outcome_notes ? [{ label: 'Outcome notes', text: c.outcome_notes }] : []),
+  ];
+  const readAloud = useReadAloud(readAloudItems);
+
   return (
     <View style={styles.container}>
       <Header navigation={navigation} title={c.patient?.patient_name || 'Emergency Case'} onEdit={canManage ? () => setEditModal(true) : null} />
 
       <ScrollView contentContainerStyle={{ padding: Spacing[4], paddingBottom: Spacing[10], gap: Spacing[3] }}>
+        <ReadAloudTrigger readAloud={readAloud} />
+
         {canManage && (
           <View style={styles.actionRow}>
             <ActionBtn icon="swap-horizontal" label="Refer" onPress={() => setReferModal(true)} />
@@ -115,10 +132,7 @@ export default function CaseDetailScreen({ route, navigation }) {
         </Card>
 
         <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={styles.cardLabel}>Presenting Complaint</Text>
-            <SpeakButton text={c.presenting_complaint} />
-          </View>
+          <Text style={styles.cardLabel}>Presenting Complaint</Text>
           <Text style={styles.notesText}>{c.presenting_complaint}</Text>
         </Card>
 

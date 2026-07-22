@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
+import { startListening, speak, stopSpeaking, getVoiceLanguage, LANGUAGES } from '../../services/voice';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -76,6 +77,54 @@ export default function AssistantWidget({ context = {} }) {
   const [error, setError]       = useState('');
   const scrollRef = useRef(null);
 
+  // ── Voice: dictate the input, and read replies aloud ─────────────────────
+  const [micState, setMicState]   = useState('idle'); // idle | listening | transcribing
+  const [micError, setMicError]   = useState('');
+  const [speakingIndex, setSpeakingIndex] = useState(-1); // -1 = nothing playing, -2 = "read all" in progress
+  const micStopRef = useRef(null);
+  const readAllCancelledRef = useRef(false);
+  const lang = getVoiceLanguage();
+  const langInfo = LANGUAGES.find((l) => l.code === lang);
+
+  const toggleMic = () => {
+    if (micState === 'listening') {
+      if (lang !== 'en') setMicState('transcribing');
+      micStopRef.current?.();
+      return;
+    }
+    if (micState !== 'idle') return;
+    setMicError('');
+    setMicState('listening');
+    micStopRef.current = startListening(lang, {
+      onResult: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
+      onError: (err) => { setMicError(err.message); setMicState('idle'); },
+      onEnd: () => setMicState((s) => (s === 'listening' ? 'idle' : 'idle')),
+    });
+  };
+
+  const speakOne = async (i, text) => {
+    if (speakingIndex === i) { stopSpeaking(); setSpeakingIndex(-1); return; }
+    stopSpeaking();
+    readAllCancelledRef.current = true; // interrupts any in-progress "read all"
+    setSpeakingIndex(i);
+    try { await speak(text, lang); } catch { /* convenience feature, fail quietly */ }
+    finally { setSpeakingIndex((cur) => (cur === i ? -1 : cur)); }
+  };
+
+  const readAllReplies = async () => {
+    if (speakingIndex === -2) { stopSpeaking(); readAllCancelledRef.current = true; setSpeakingIndex(-1); return; }
+    stopSpeaking();
+    readAllCancelledRef.current = false;
+    setSpeakingIndex(-2);
+    for (const m of messages) {
+      if (readAllCancelledRef.current) break;
+      if (m.role !== 'assistant') continue;
+      try { await speak(m.content, lang); } catch { /* skip to next on failure */ }
+    }
+    if (!readAllCancelledRef.current) setSpeakingIndex(-1);
+  };
+
+
   const sendMessage = useCallback(async (text) => {
     const content = (text || input).trim();
     if (!content || loading) return;
@@ -126,6 +175,11 @@ export default function AssistantWidget({ context = {} }) {
             <View style={[styles.header, { backgroundColor: config.color }]}>
               <View style={styles.headerIcon}><Ionicons name="heart" size={16} color={Colors.white} /></View>
               <Text style={styles.headerTitle}>{config.label}</Text>
+              {langInfo?.readAloud && (
+                <TouchableOpacity onPress={readAllReplies} style={styles.headerBtn}>
+                  <Ionicons name={speakingIndex === -2 ? 'volume-mute-outline' : 'volume-medium-outline'} size={16} color="rgba(255,255,255,0.85)" />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity onPress={clearChat} style={styles.headerBtn}><Ionicons name="refresh" size={16} color="rgba(255,255,255,0.85)" /></TouchableOpacity>
               <TouchableOpacity onPress={() => setOpen(false)} style={styles.headerBtn}><Ionicons name="chevron-down" size={20} color="rgba(255,255,255,0.85)" /></TouchableOpacity>
             </View>
@@ -145,6 +199,11 @@ export default function AssistantWidget({ context = {} }) {
                     <View style={[styles.bubble, isUser ? { backgroundColor: config.color } : styles.bubbleAssistant]}>
                       <RenderMessage text={msg.content} isUser={isUser} />
                     </View>
+                    {!isUser && langInfo?.readAloud && (
+                      <TouchableOpacity onPress={() => speakOne(i, msg.content)} style={styles.msgSpeakBtn}>
+                        <Ionicons name={speakingIndex === i ? 'volume-mute-outline' : 'volume-medium-outline'} size={13} color={Colors.gray400} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               })}
@@ -173,7 +232,21 @@ export default function AssistantWidget({ context = {} }) {
             )}
 
             {/* Input */}
+            {!!micError && <Text style={styles.micErrorText}>{micError}</Text>}
             <View style={styles.inputRow}>
+              {langInfo?.dictation && (
+                <TouchableOpacity
+                  style={[styles.micBtn, micState === 'listening' && styles.micBtnActive]}
+                  onPress={toggleMic}
+                  disabled={micState === 'transcribing'}
+                >
+                  {micState === 'transcribing' ? (
+                    <Spinner size="small" color={Colors.gray400} />
+                  ) : (
+                    <Ionicons name={micState === 'listening' ? 'stop' : 'mic-outline'} size={17} color={micState === 'listening' ? Colors.white : config.color} />
+                  )}
+                </TouchableOpacity>
+              )}
               <TextInput
                 style={styles.input} value={input} onChangeText={setInput}
                 placeholder="Ask anything…" placeholderTextColor={Colors.gray400}
@@ -223,6 +296,10 @@ const styles = StyleSheet.create({
   promptChipText: { fontSize: 11, color: Colors.textSecondary },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: Spacing[3], paddingBottom: Spacing[2] },
   input: { flex: 1, backgroundColor: Colors.gray50, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10, fontSize: Typography.sm, maxHeight: 90, color: Colors.textPrimary },
+  micBtn: { width: 38, height: 38, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.gray50, borderWidth: 1, borderColor: Colors.border },
+  micBtnActive: { backgroundColor: Colors.dangerDark, borderColor: Colors.dangerDark },
+  micErrorText: { fontSize: 11, color: Colors.dangerDark, paddingHorizontal: Spacing[3], paddingBottom: 4 },
+  msgSpeakBtn: { padding: 4, alignSelf: 'flex-end' },
   sendBtn: { width: 38, height: 38, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   disclaimer: { textAlign: 'center', fontSize: 10, color: Colors.gray400, paddingBottom: Spacing[3] },
 });
