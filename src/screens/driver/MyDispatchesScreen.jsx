@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { transportApi, getErrorMessage } from '../../api/client';
 import { Spinner, EmptyState, ErrorBanner, Badge, Button } from '../../components/ui';
 import { RequestStatusModal } from '../transport/TransportScreen';
+import ReadAloudTrigger from '../../components/voice/ReadAloudBar';
+import useReadAloud from '../../hooks/useReadAloud';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -44,6 +46,17 @@ export default function MyDispatchesScreen() {
   const active    = requests.filter((r) => !['completed', 'cancelled'].includes(r.status));
   const completed = requests.filter((r) => r.status === 'completed');
 
+  const readAloudItems = active.map((r) => ({
+    label: r.vehicle_registration || 'Dispatch',
+    text: [
+      `Vehicle ${r.vehicle_registration || 'not yet assigned'}.`,
+      r.referral ? `Linked to a referral.` : '',
+      r.requested_by_name ? `Requested by ${r.requested_by_name}, ${timeAgo(r.created_at)}.` : `Requested ${timeAgo(r.created_at)}.`,
+      r.notes ? `Notes: ${r.notes}` : '',
+    ].filter(Boolean).join(' '),
+  }));
+  const readAloud = useReadAloud(readAloudItems);
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing[5] }]}>
@@ -61,6 +74,7 @@ export default function MyDispatchesScreen() {
             {active.length > 0 && (
               <View style={{ marginBottom: Spacing[4] }}>
                 <Text style={styles.groupLabel}>Active</Text>
+                <ReadAloudTrigger readAloud={readAloud} />
                 {active.map((r) => (
                   <View key={r.id} style={styles.card}>
                     <View style={styles.cardIcon}><Text style={{ fontSize: 18 }}>🚑</Text></View>
