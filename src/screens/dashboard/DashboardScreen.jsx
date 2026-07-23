@@ -7,8 +7,6 @@ import { casesApi, referralsApi, patientsApi, consultationsApi, transportApi, ge
 import { useAuth } from '../../contexts/AuthContext';
 import { Input, Button, Spinner, Badge, ErrorBanner, StatCard, EmptyState } from '../../components/ui';
 import { DangerSignList } from '../../components/ui/dangerSigns';
-import VoiceEntryBar, { VoiceEntryTrigger } from '../../components/voice/VoiceEntryBar';
-import useVoiceEntry from '../../hooks/useVoiceEntry';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 
@@ -156,8 +154,6 @@ function FollowUpForm({ patients, onAdd }) {
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const voiceFields = [{ key: 'note', label: 'Follow-up Note', get: () => note, set: setNote }];
-  const voiceEntry = useVoiceEntry(voiceFields);
 
   const handleAdd = () => {
     if (!name.trim()) return;
@@ -170,10 +166,8 @@ function FollowUpForm({ patients, onAdd }) {
     <View style={styles.followUpForm}>
       <Input label="Patient Name" required value={name} onChangeText={setName} placeholder="Patient name…" />
       <Input label="Due Date" value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" />
-      <VoiceEntryTrigger onPress={voiceEntry.start} count={voiceFields.length} />
       <Input label="Follow-up Note" value={note} onChangeText={setNote} placeholder="e.g. Postnatal check at 6 weeks, BP monitoring…" />
       <Button title="Schedule Follow-up" onPress={handleAdd} fullWidth disabled={!name.trim()} />
-      <VoiceEntryBar voiceEntry={voiceEntry} />
     </View>
   );
 }
