@@ -52,11 +52,13 @@ export default function ReferralDetailScreen({ route, navigation }) {
   // Hook must run unconditionally on every render, so it's declared before
   // the loading/error early-returns below, using a safe fallback.
   const rSafe = r || {};
+  const [handoverSpeakable, setHandoverSpeakable] = useState(null);
   const readAloudItems = [
     { label: 'Route', text: `From ${rSafe.referring_facility_name || 'unknown'} to ${rSafe.receiving_facility_name || 'unknown'}` },
     ...(rSafe.override_reason ? [{ label: 'Override reason', text: rSafe.override_reason }] : []),
     ...((rSafe.maternal_outcome && rSafe.maternal_outcome !== 'unknown') || (rSafe.neonatal_outcome && rSafe.neonatal_outcome !== 'unknown') ? [{ label: 'Outcomes', text: `Maternal: ${rSafe.maternal_outcome}, Neonatal: ${rSafe.neonatal_outcome}` }] : []),
     ...(rSafe.outcome_notes ? [{ label: 'Outcome notes', text: rSafe.outcome_notes }] : []),
+    ...(handoverSpeakable ? [{ label: 'AI handover brief', text: handoverSpeakable }] : []),
   ];
   const readAloud = useReadAloud(readAloudItems);
 
@@ -80,7 +82,7 @@ export default function ReferralDetailScreen({ route, navigation }) {
         <Text style={styles.idText}>{r.id}</Text>
         <ReadAloudTrigger readAloud={readAloud} />
 
-        <HandoverBriefPanel referralId={r.id} />
+        <HandoverBriefPanel referralId={r.id} onSpeakableText={setHandoverSpeakable} />
 
         <Card>
           <Text style={styles.cardLabel}>Referral Route</Text>

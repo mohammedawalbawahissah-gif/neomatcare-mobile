@@ -8,19 +8,18 @@
  *   caseId   {string}   - Emergency case UUID
  *   onApply  {function} - Callback({ danger_signs, presenting_complaint_suggestion })
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner, Badge } from '../ui';
-import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
 const SEVERITY_VARIANT = { critical: 'danger', high: 'warning', moderate: 'warning', low: 'success' };
 const CONFIDENCE_COLOR = { high: Colors.successDark, medium: Colors.warningDark, low: Colors.dangerDark };
 
-export default function TriageAIPanel({ note, caseId, onApply }) {
+export default function TriageAIPanel({ note, caseId, onApply, onSpeakableText }) {
   const [result, setResult]     = useState(null);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
@@ -52,12 +51,13 @@ export default function TriageAIPanel({ note, caseId, onApply }) {
     result.missing_fields?.length ? `Missing clinical fields: ${result.missing_fields.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
 
+  useEffect(() => { onSpeakableText?.(speakableText || null); }, [speakableText]);
+
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.header} onPress={() => setExpanded((e) => !e)}>
         <View style={styles.headerIcon}><Ionicons name="sparkles" size={13} color={Colors.white} /></View>
         <Text style={styles.headerTitle}>AI Triage Analysis</Text>
-        {result && <SpeakButton text={speakableText} iconColor={Colors.primaryDark} style={{ backgroundColor: 'rgba(255,255,255,0.5)' }} />}
         <Text style={styles.headerHint}>{result ? 'Results ready' : 'Analyse note'}</Text>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={15} color={Colors.primaryDark} />
       </TouchableOpacity>

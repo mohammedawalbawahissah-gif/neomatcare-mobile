@@ -5,12 +5,11 @@
  *
  * Props: patientId, visitCount
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
-import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -20,7 +19,7 @@ const SEVERITY_CONFIG = {
   low:    { color: Colors.infoDark,    bg: '#eff6ff', border: '#bfdbfe', icon: 'information-circle' },
 };
 
-export default function ANCAnomalyPanel({ patientId, visitCount }) {
+export default function ANCAnomalyPanel({ patientId, visitCount, onSpeakableText }) {
   const [result, setResult]   = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -35,6 +34,17 @@ export default function ANCAnomalyPanel({ patientId, visitCount }) {
     } finally { setLoading(false); }
   };
 
+  // Computed and reported before the visitCount early-return below, so this
+  // hook runs unconditionally on every render (Rules of Hooks).
+  const speakableText = result?.data && [
+    result.data.summary,
+    result.data.recommended_risk_escalation ? 'Risk level re-computed — patient risk may have escalated.' : '',
+    result.data.patterns?.length
+      ? `Detected patterns: ${result.data.patterns.map((p) => `${p.type.replace(/_/g, ' ')}: ${p.description}`).join('. ')}.`
+      : '',
+  ].filter(Boolean).join(' ');
+  useEffect(() => { onSpeakableText?.(speakableText || null); }, [speakableText]);
+
   if (visitCount < 2) {
     return (
       <View style={styles.tooFewRow}>
@@ -44,20 +54,11 @@ export default function ANCAnomalyPanel({ patientId, visitCount }) {
     );
   }
 
-  const speakableText = result?.data && [
-    result.data.summary,
-    result.data.recommended_risk_escalation ? 'Risk level re-computed — patient risk may have escalated.' : '',
-    result.data.patterns?.length
-      ? `Detected patterns: ${result.data.patterns.map((p) => `${p.type.replace(/_/g, ' ')}: ${p.description}`).join('. ')}.`
-      : '',
-  ].filter(Boolean).join(' ');
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="sparkles" size={14} color={Colors.primaryLight} />
         <Text style={styles.headerTitle}>AI ANC Pattern Analysis</Text>
-        {result && <SpeakButton text={speakableText} iconColor="rgba(255,255,255,0.85)" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         <Text style={styles.headerCount}>{visitCount} visits</Text>
       </View>
 

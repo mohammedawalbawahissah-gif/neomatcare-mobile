@@ -6,12 +6,11 @@
  * Props: caseId, availableVehicles (from transportApi.vehicles.available()),
  *        estimatedTravelMinutes (default 30), onSelect(vehicleId)
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
-import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -23,7 +22,7 @@ const URGENCY_CONFIG = {
 const AMBER = '#d97706';
 const AMBER_DARK = '#b45309';
 
-export default function TransportRecommendPanel({ caseId, availableVehicles = [], estimatedTravelMinutes = 30, onSelect }) {
+export default function TransportRecommendPanel({ caseId, availableVehicles = [], estimatedTravelMinutes = 30, onSelect, onSpeakableText }) {
   const [result, setResult]   = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -63,12 +62,13 @@ export default function TransportRecommendPanel({ caseId, availableVehicles = []
     result.data.alternatives?.length ? `Alternatives: ${result.data.alternatives.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
 
+  useEffect(() => { onSpeakableText?.(speakableText || null); }, [speakableText]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="car-outline" size={15} color="#fde68a" />
         <Text style={styles.headerTitle}>AI Transport Recommendation</Text>
-        {result && <SpeakButton text={speakableText} iconColor="#fde68a" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         <Text style={styles.headerCount}>{availableVehicles.length} vehicles</Text>
       </View>
 

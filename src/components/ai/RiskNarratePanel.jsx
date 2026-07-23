@@ -5,12 +5,11 @@
  *
  * Props: patientId, riskLevel ("high"|"medium"|"low"), riskFlags (array)
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { aiApi, getErrorMessage } from '../../api/client';
 import { Spinner } from '../ui';
-import SpeakButton from '../voice/SpeakButton';
 import Colors from '../../constants/colors';
 import { Typography, Spacing, Radius } from '../../constants/theme';
 
@@ -18,7 +17,7 @@ const RISK_BG     = { high: '#fef2f2', medium: '#fffbeb', low: '#f0fdf4' };
 const RISK_BORDER = { high: '#fecaca', medium: '#fde68a', low: '#86efac' };
 const RISK_HEADER = { high: Colors.dangerDark, medium: Colors.warningDark, low: Colors.successDark };
 
-export default function RiskNarratePanel({ patientId, riskLevel, riskFlags }) {
+export default function RiskNarratePanel({ patientId, riskLevel, riskFlags, onSpeakableText }) {
   const [result, setResult]     = useState(null);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
@@ -31,6 +30,10 @@ export default function RiskNarratePanel({ patientId, riskLevel, riskFlags }) {
     result.action_points?.length ? `Action points: ${result.action_points.join('. ')}.` : '',
     result.urgency_note,
   ].filter(Boolean).join(' ');
+
+  // Report our speakable content up to the screen's global Read Aloud
+  // control instead of having our own per-panel speaker button.
+  useEffect(() => { onSpeakableText?.(speakableText || null); }, [speakableText]);
 
   const narrate = async () => {
     setLoading(true); setError(''); setResult(null);
@@ -48,7 +51,6 @@ export default function RiskNarratePanel({ patientId, riskLevel, riskFlags }) {
       <View style={[styles.header, { backgroundColor: RISK_HEADER[level] }]}>
         <Ionicons name="sparkles" size={14} color={Colors.white} />
         <Text style={styles.headerTitle}>AI Risk Explanation</Text>
-        {result && <SpeakButton text={speakableText} iconColor="rgba(255,255,255,0.85)" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
         {result && (
           <TouchableOpacity onPress={() => setExpanded((e) => !e)}>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="rgba(255,255,255,0.85)" />

@@ -47,6 +47,8 @@ export default function PatientDetailScreen({ route, navigation }) {
   const [ancModal, setAncModal]         = useState(false);
   const [consentModal, setConsentModal] = useState(false);
   const [portalModal, setPortalModal]   = useState(false);
+  const [riskSpeakable, setRiskSpeakable] = useState(null);
+  const riskReadAloud = useReadAloud(riskSpeakable ? [{ label: 'AI risk explanation', text: riskSpeakable }] : []);
   const { pending, syncVersion } = useOfflineQueue();
 
   const queuedAncVisits = pending
@@ -145,7 +147,8 @@ export default function PatientDetailScreen({ route, navigation }) {
 
         {p.risk_level && p.risk_flags?.length > 0 && (
           <View style={{ paddingHorizontal: Spacing[4], marginBottom: Spacing[2] }}>
-            <RiskNarratePanel patientId={p.id} riskLevel={p.risk_level} riskFlags={p.risk_flags} />
+            <ReadAloudTrigger readAloud={riskReadAloud} />
+            <RiskNarratePanel patientId={p.id} riskLevel={p.risk_level} riskFlags={p.risk_flags} onSpeakableText={setRiskSpeakable} />
           </View>
         )}
 
@@ -264,10 +267,13 @@ function OverviewTab({ p }) {
 
 // ─── ANC tab ────────────────────────────────────────────────────────────────────
 function AncTab({ visits, canManage, onAdd, patientId }) {
+  const [ancSpeakable, setAncSpeakable] = useState(null);
+  const ancReadAloud = useReadAloud(ancSpeakable ? [{ label: 'AI ANC pattern analysis', text: ancSpeakable }] : []);
   return (
     <View style={{ gap: Spacing[2] }}>
       {canManage && <Button title="Log ANC Visit" icon="add" size="sm" onPress={onAdd} style={{ alignSelf: 'flex-end' }} />}
-      <ANCAnomalyPanel patientId={patientId} visitCount={visits.length} />
+      <ReadAloudTrigger readAloud={ancReadAloud} />
+      <ANCAnomalyPanel patientId={patientId} visitCount={visits.length} onSpeakableText={setAncSpeakable} />
       {visits.length === 0 ? (
         <Card><Text style={styles.emptyText}>No ANC visits recorded yet.</Text></Card>
       ) : visits.map((v) => (

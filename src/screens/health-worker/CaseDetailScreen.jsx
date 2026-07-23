@@ -81,6 +81,32 @@ export default function CaseDetailScreen({ route, navigation }) {
     finally { setAddingNote(false); }
   };
 
+  // Hooks must run unconditionally on every render, so all of this is
+  // computed before the loading/error early-returns below, using a safe
+  // fallback for the case data.
+  const cSafe = c || {};
+  const vitals = Object.entries(cSafe.vital_signs || {}).filter(([, v]) => v !== null && v !== '');
+  const [triageSpeakable, setTriageSpeakable] = useState(null);
+  const [handoverSpeakable, setHandoverSpeakable] = useState(null);
+
+  // Clinically load-bearing content, top-to-bottom as displayed. Labels are
+  // spoken, decorative chrome (icons, badges, empty/unknown fields) is not.
+  // AI panel output (Triage Analysis, Handover Brief) is appended once
+  // generated, reported up via each panel's onSpeakableText prop.
+  const readAloudItems = [
+    { label: 'Patient', text: `${cSafe.patient?.patient_name || 'Unnamed patient'}, age ${cSafe.patient?.age || 'unknown'}, ${cSafe.patient?.town || 'location unknown'}` },
+    ...(cSafe.gestational_age_weeks ? [{ label: 'Gestational age', text: `${cSafe.gestational_age_weeks} weeks` }] : []),
+    ...(cSafe.presenting_complaint ? [{ label: 'Presenting complaint', text: cSafe.presenting_complaint }] : []),
+    ...((cSafe.danger_signs || []).length ? [{ label: 'Danger signs', text: cSafe.danger_signs.join(', ').replace(/_/g, ' ') }] : []),
+    ...(vitals.length ? [{ label: 'Vital signs', text: vitals.map(([k, v]) => `${VITAL_LABELS[k] || k}: ${v}`).join(', ') }] : []),
+    ...(cSafe.fetal_heart_rate ? [{ label: 'Fetal heart rate', text: `${cSafe.fetal_heart_rate}` }] : []),
+    ...(cSafe.obstetric_history ? [{ label: 'Obstetric history', text: cSafe.obstetric_history }] : []),
+    ...(cSafe.outcome_notes ? [{ label: 'Outcome notes', text: cSafe.outcome_notes }] : []),
+    ...(triageSpeakable ? [{ label: 'AI triage analysis', text: triageSpeakable }] : []),
+    ...(handoverSpeakable ? [{ label: 'AI handover brief', text: handoverSpeakable }] : []),
+  ];
+  const readAloud = useReadAloud(readAloudItems);
+
   if (loading) return <Spinner fullScreen />;
   if (error || !c) {
     return (
@@ -90,22 +116,6 @@ export default function CaseDetailScreen({ route, navigation }) {
       </View>
     );
   }
-
-  const vitals = Object.entries(c.vital_signs || {}).filter(([, v]) => v !== null && v !== '');
-
-  // Clinically load-bearing content, top-to-bottom as displayed. Labels are
-  // spoken, decorative chrome (icons, badges, empty/unknown fields) is not.
-  const readAloudItems = [
-    { label: 'Patient', text: `${c.patient?.patient_name || 'Unnamed patient'}, age ${c.patient?.age || 'unknown'}, ${c.patient?.town || 'location unknown'}` },
-    ...(c.gestational_age_weeks ? [{ label: 'Gestational age', text: `${c.gestational_age_weeks} weeks` }] : []),
-    ...(c.presenting_complaint ? [{ label: 'Presenting complaint', text: c.presenting_complaint }] : []),
-    ...((c.danger_signs || []).length ? [{ label: 'Danger signs', text: c.danger_signs.join(', ').replace(/_/g, ' ') }] : []),
-    ...(vitals.length ? [{ label: 'Vital signs', text: vitals.map(([k, v]) => `${VITAL_LABELS[k] || k}: ${v}`).join(', ') }] : []),
-    ...(c.fetal_heart_rate ? [{ label: 'Fetal heart rate', text: `${c.fetal_heart_rate}` }] : []),
-    ...(c.obstetric_history ? [{ label: 'Obstetric history', text: c.obstetric_history }] : []),
-    ...(c.outcome_notes ? [{ label: 'Outcome notes', text: c.outcome_notes }] : []),
-  ];
-  const readAloud = useReadAloud(readAloudItems);
 
   return (
     <View style={styles.container}>
@@ -199,6 +209,7 @@ export default function CaseDetailScreen({ route, navigation }) {
                 <TriageAIPanel
                   note={noteText}
                   caseId={id}
+                  onSpeakableText={setTriageSpeakable}
                   onApply={({ danger_signs, presenting_complaint_suggestion }) => {
                     setEditModal(true);
                     // EditCaseModal seeds its own state from `c` on open; the
@@ -213,7 +224,7 @@ export default function CaseDetailScreen({ route, navigation }) {
           )}
         </Card>
 
-        {canManage && <HandoverBriefPanel caseId={id} />}
+        {canManage && <HandoverBriefPanel caseId={id} onSpeakableText={setHandoverSpeakable} />}
       </ScrollView>
 
       <EditCaseModal visible={editModal} onClose={() => setEditModal(false)} caseData={c} onSaved={() => { setEditModal(false); load(); }} />
@@ -719,6 +730,8 @@ function TransportRequestModal({ visible, onClose, onSaved, caseId }) {
   const [error, setError] = useState('');
   const notesVoiceFields = [{ key: 'notes', label: 'Notes', get: () => notes, set: setNotes }];
   const notesVoiceEntry = useVoiceEntry(notesVoiceFields);
+  const [transportSpeakable, setTransportSpeakable] = useState(null);
+  const transportReadAloud = useReadAloud(transportSpeakable ? [{ label: 'AI transport recommendation', text: transportSpeakable }] : []);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -738,11 +751,15 @@ function TransportRequestModal({ visible, onClose, onSaved, caseId }) {
     <Modal visible={visible} onClose={onClose} title="Request Transport">
       <ErrorBanner message={error} onDismiss={() => setError('')} />
       {caseId && !loading && (
-        <TransportRecommendPanel
-          caseId={caseId}
-          availableVehicles={available}
-          onSelect={(vehicleId) => setVehicle(vehicleId)}
-        />
+        <>
+          <ReadAloudTrigger readAloud={transportReadAloud} />
+          <TransportRecommendPanel
+            caseId={caseId}
+            availableVehicles={available}
+            onSelect={(vehicleId) => setVehicle(vehicleId)}
+            onSpeakableText={setTransportSpeakable}
+          />
+        </>
       )}
       {loading ? <Spinner /> : (
         <Select label="Vehicle" value={vehicle} onValueChange={setVehicle} placeholder="Any available"
